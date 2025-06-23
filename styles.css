@@ -1,0 +1,70 @@
+body {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    margin: 0;
+    background: linear-gradient(to bottom, #1b4793, #378ec4); /* Add your gradient here */
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-size: 10px;
+}
+
+
+.loading-screen {
+    text-align: center;
+    background-color: rgba(227, 249, 255, 0.8); /* Optional: semi-transparent white background for readability */
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    padding: 10px;
+    color: #2f2f2e;
+    border-radius: 15px;/* Optional: round the corners */
+    position: relative; 
+}
+
+
+.message-box {
+    position: absolute; /* Position relative to loading-screen */
+    bottom: 30px; /* Distance from the bottom */
+    left: 500px; /* Distance from the left */
+    font-size: 18px;
+    color: #fff;
+    background-color: rgba(0, 0, 0, 0.7);
+    padding: 10px;
+    border-radius: 5px;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.game-area {
+    position: relative;
+    width: 300px;
+    height: 400px;
+    border: 2px solid #645c5c;
+    overflow: hidden;
+    margin: 20px auto;
+    background-color: #fff; /* Background color for the game area */
+}
+
+.basket {
+    position: absolute;
+    bottom: 10px;
+    left: 50%;
+    width: 50px;
+    height: 10px;
+    background-color: #ef3c23;
+    transform: translateX(-50%);
+}
+
+.falling-object {
+    position: absolute;
+    width: 30px;
+    height: 30px;
+    background-color: #fac92c;
+    border-radius: 50%;
+}
+
+.score {
+    margin-bottom: 15px;
+    font-family: 'Segoe UI',sans-serif;
+    font-weight: bold;
+    font-size: 24px;
+    color: #2f2f2e;
+}

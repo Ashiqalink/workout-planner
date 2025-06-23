@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+
+{% block title %}Progress Tracking - Student Training System{% endblock %}
+
+{% block content %}
+<div class="progress-page">
+    <div class="page-header">
+        <h1>📈 Progress Tracking</h1>
+        <p>Monitor your training progress across all domains</p>
+    </div>
+
+    <div class="progress-overview">
+        <div class="stats-grid">
+            <div class="stat-card">
+                <h3>Total Sessions</h3>
+                <div class="stat-number">{{ progress_data.total_sessions or 0 }}</div>
+            </div>
+            <div class="stat-card">
+                <h3>Total Minutes</h3>
+                <div class="stat-number">{{ progress_data.total_minutes or 0 }}</div>
+            </div>
+            <div class="stat-card">
+                <h3>Current Streak</h3>
+                <div class="stat-number">{{ progress_data.current_streak or 0 }} days</div>
+            </div>
+            <div class="stat-card">
+                <h3>Average Session</h3>
+                <div class="stat-number">{{ progress_data.avg_session_length or 0 }} min</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="charts-section">
+        <div class="chart-container">
+            <h2>Training Distribution by Domain</h2>
+            <canvas id="domainChart" width="400" height="200"></canvas>
+        </div>
+        
+        <div class="chart-container">
+            <h2>Weekly Progress</h2>
+            <canvas id="weeklyChart" width="400" height="200"></canvas>
+        </div>
+    </div>
+
+    <div class="domain-progress">
+        <h2>Domain-Specific Progress</h2>
+        <div class="domain-cards">
+            <div class="domain-card">
+                <h3>💪 Strength</h3>
+                <div class="domain-stats">
+                    <p>Sessions: {{ progress_data.strength.sessions or 0 }}</p>
+                    <p>Minutes: {{ progress_data.strength.minutes or 0 }}</p>
+                    <p>Week: {{ progress_data.strength.week or 1 }}</p>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: {{ progress_data.strength.progress or 0 }}%"></div>
+                </div>
+            </div>
+            
+            <div class="domain-card">
+                <h3>⚡ Speed & Mobility</h3>
+                <div class="domain-stats">
+                    <p>Sessions: {{ progress_data.speed_mobility.sessions or 0 }}</p>
+                    <p>Minutes: {{ progress_data.speed_mobility.minutes or 0 }}</p>
+                    <p>Week: {{ progress_data.speed_mobility.week or 1 }}</p>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: {{ progress_data.speed_mobility.progress or 0 }}%"></div>
+                </div>
+            </div>
+            
+            <div class="domain-card">
+                <h3>🏃 Endurance</h3>
+                <div class="domain-stats">
+                    <p>Sessions: {{ progress_data.endurance.sessions or 0 }}</p>
+                    <p>Minutes: {{ progress_data.endurance.minutes or 0 }}</p>
+                    <p>Week: {{ progress_data.endurance.week or 1 }}</p>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: {{ progress_data.endurance.progress or 0 }}%"></div>
+                </div>
+            </div>
+            
+            <div class="domain-card">
+                <h3>🤸 Agility</h3>
+                <div class="domain-stats">
+                    <p>Sessions: {{ progress_data.agility.sessions or 0 }}</p>
+                    <p>Minutes: {{ progress_data.agility.minutes or 0 }}</p>
+                    <p>Week: {{ progress_data.agility.week or 1 }}</p>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: {{ progress_data.agility.progress or 0 }}%"></div>
+                </div>
+            </div>
+            
+            <div class="domain-card">
+                <h3>🧠 Cognitive</h3>
+                <div class="domain-stats">
+                    <p>Sessions: {{ progress_data.cognitive.sessions or 0 }}</p>
+                    <p>Minutes: {{ progress_data.cognitive.minutes or 0 }}</p>
+                    <p>Week: {{ progress_data.cognitive.week or 1 }}</p>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: {{ progress_data.cognitive.progress or 0 }}%"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="recent-sessions">
+        <h2>Recent Training Sessions</h2>
+        <div class="sessions-list">
+            {% if recent_sessions %}
+                {% for session in recent_sessions %}
+                <div class="session-item">
+                    <div class="session-date">{{ session.session_date or 'Unknown' }}</div>
+                    <div class="session-details">
+                        <h4>{{ session.session_type or 'Custom Workout' }}</h4>
+                        <p>{{ session.total_duration or 0 }} minutes</p>
+                    </div>
+                    <div class="session-status completed">
+                        Completed
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <p class="no-sessions">No training sessions recorded yet. Start your first workout!</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Chart.js Library -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Domain distribution chart
+    const domainCtx = document.getElementById('domainChart').getContext('2d');
+    new Chart(domainCtx, {
+        type: 'doughnut',
+        data: {
+            labels: ['Strength', 'Speed & Mobility', 'Endurance', 'Agility', 'Cognitive'],
+            datasets: [{
+                data: [
+                    {{ progress_data.strength.minutes or 0 }},
+                    {{ progress_data.speed_mobility.minutes or 0 }},
+                    {{ progress_data.endurance.minutes or 0 }},
+                    {{ progress_data.agility.minutes or 0 }},
+                    {{ progress_data.cognitive.minutes or 0 }}
+                ],
+                backgroundColor: [
+                    '#FF6B6B',
+                    '#4ECDC4',
+                    '#45B7D1',
+                    '#96CEB4',
+                    '#FFEAA7'
+                ]
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    position: 'bottom'
+                }
+            }
+        }
+    });
+
+    // Weekly progress chart
+    const weeklyCtx = document.getElementById('weeklyChart').getContext('2d');
+    new Chart(weeklyCtx, {
+        type: 'line',
+        data: {
+            labels: ['Week 1', 'Week 2', 'Week 3', 'Week 4'],
+            datasets: [{
+                label: 'Total Minutes',
+                data: [{{ progress_data.weekly_progress|join(', ') if progress_data.weekly_progress else '0, 0, 0, 0' }}],
+                borderColor: '#4ECDC4',
+                backgroundColor: 'rgba(78, 205, 196, 0.1)',
+                tension: 0.4
+            }]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: {
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+});
+</script>
+{% endblock %} 

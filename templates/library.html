@@ -1,0 +1,272 @@
+{% extends "base.html" %}
+
+{% block title %}Exercise Library - Student Training System{% endblock %}
+
+{% block content %}
+<div class="library-page">
+    <div class="page-header">
+        <h1>📚 Exercise Library</h1>
+        <p>Browse exercises across 5 training domains</p>
+    </div>
+
+    <div class="search-section">
+        <div class="search-container">
+            <label for="search-input">🔍 Search Exercises:</label>
+            <input type="text" id="search-input" placeholder="Search by exercise name, description, or instructions...">
+            <button class="btn btn-primary" onclick="performSearch()">Search</button>
+            <button class="btn btn-secondary" onclick="clearSearch()">Clear</button>
+        </div>
+    </div>
+
+    <div class="filters">
+        <h3>Filter Options:</h3>
+        <div class="filter-group">
+            <label for="category-filter">Category:</label>
+            <select id="category-filter">
+                <option value="">All Categories</option>
+                <option value="Strength & Power">Strength & Power</option>
+                <option value="Speed & Mobility">Speed & Mobility</option>
+                <option value="Endurance">Endurance</option>
+                <option value="Agility">Agility</option>
+                <option value="Cognition">Cognition</option>
+            </select>
+        </div>
+        <div class="filter-group">
+            <label for="difficulty-filter">Difficulty:</label>
+            <select id="difficulty-filter">
+                <option value="">All Levels</option>
+                <option value="beginner">Beginner</option>
+                <option value="intermediate">Intermediate</option>
+                <option value="advanced">Advanced</option>
+            </select>
+        </div>
+        <div class="filter-actions">
+            <button class="btn btn-primary" onclick="applyFilters()">Apply Filters</button>
+            <button class="btn btn-secondary" onclick="clearFilters()">Clear Filters</button>
+        </div>
+    </div>
+
+    <div class="results-info">
+        <p id="results-count"></p>
+    </div>
+
+    <div class="exercises-grid" id="exercises-container"></div>
+</div>
+
+<script>
+let allExercises = [];
+let filteredExercises = [];
+let searchResults = [];
+let isSearchActive = false;
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadLibraryExercises();
+    
+    // Add search input event listener for real-time search
+    document.getElementById('search-input').addEventListener('input', function() {
+        if (this.value.trim() === '') {
+            clearSearch();
+        }
+    });
+    
+    // Add enter key support for search
+    document.getElementById('search-input').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            performSearch();
+        }
+    });
+});
+
+function loadLibraryExercises() {
+    fetch('/api/exercises')
+        .then(response => response.json())
+        .then(data => {
+            if (!data.exercises) {
+                console.error('No exercises property in response!');
+                return;
+            }
+            
+            // Clear existing data first
+            allExercises.length = 0;
+            
+            // Assign the data using spread operator to ensure proper assignment
+            allExercises.push(...data.exercises);
+            
+            // Reset other arrays
+            filteredExercises = [];
+            searchResults = [];
+            
+            // Don't display anything initially
+            displayExercises([]);
+            updateResultsCount(0, 'initial');
+        })
+        .catch(error => {
+            console.error('Error loading exercises:', error);
+            document.getElementById('exercises-container').innerHTML = 
+                '<div class="error-message"><p>Error loading exercises. Please try again.</p></div>';
+        });
+}
+
+function displayExercises(exercises) {
+    const container = document.getElementById('exercises-container');
+    container.innerHTML = '';
+    
+    if (exercises.length === 0) {
+        if (isSearchActive) {
+            container.innerHTML = '<div class="no-results"><p>No exercises found matching your search.</p></div>';
+        } else if (filteredExercises.length > 0) {
+            container.innerHTML = '<div class="no-results"><p>No exercises match the selected filters.</p></div>';
+        } else {
+            // Don't show anything when no filters or search are applied
+            container.innerHTML = '';
+        }
+        return;
+    }
+    
+    exercises.forEach(exercise => {
+        const exerciseCard = createExerciseCard(exercise);
+        container.appendChild(exerciseCard);
+    });
+}
+
+function createExerciseCard(exercise) {
+    const card = document.createElement('div');
+    card.className = 'exercise-card';
+    card.innerHTML = `
+        <div class="exercise-header">
+            <h3>${exercise.name}</h3>
+            <span class="category-badge ${exercise.category.toLowerCase().replace(' & ', '-')}">${exercise.category}</span>
+        </div>
+        <div class="exercise-details">
+            <p><strong>Duration:</strong> ${Math.round(exercise.duration * 60)} seconds</p>
+            <p><strong>Difficulty:</strong> ${exercise.difficulty}</p>
+            <p><strong>Primary Benefit:</strong> ${exercise.description}</p>
+            ${exercise.target_muscles ? `<p><strong>Target Muscles:</strong> ${exercise.target_muscles}</p>` : ''}
+        </div>
+        <div class="exercise-instructions">
+            <h4>Instructions:</h4>
+            <p>${exercise.instructions}</p>
+        </div>
+        <div class="exercise-actions">
+            <button class="btn btn-outline" onclick="addToWorkout('${exercise.name}')">Add to Workout</button>
+        </div>
+    `;
+    return card;
+}
+
+function performSearch() {
+    const searchTerm = document.getElementById('search-input').value.toLowerCase().trim();
+    
+    if (searchTerm === '') {
+        clearSearch();
+        return;
+    }
+    
+    isSearchActive = true;
+    
+    // Search across name, description, instructions, and target muscles
+    searchResults = allExercises.filter(exercise => {
+        const searchableText = [
+            exercise.name,
+            exercise.description,
+            exercise.instructions,
+            exercise.target_muscles || ''
+        ].join(' ').toLowerCase();
+        
+        return searchableText.includes(searchTerm);
+    });
+    
+    displayExercises(searchResults);
+    updateResultsCount(searchResults.length, 'search');
+    
+    // Clear filters when search is active
+    document.getElementById('category-filter').value = '';
+    document.getElementById('difficulty-filter').value = '';
+}
+
+function clearSearch() {
+    isSearchActive = false;
+    searchResults = [];
+    document.getElementById('search-input').value = '';
+    
+    // Show filtered exercises if filters are applied, otherwise show nothing
+    if (filteredExercises.length > 0) {
+        displayExercises(filteredExercises);
+        updateResultsCount(filteredExercises.length, 'filter');
+    } else {
+        displayExercises([]);
+        updateResultsCount(0, 'initial');
+    }
+}
+
+function applyFilters() {
+    const category = document.getElementById('category-filter').value;
+    const difficulty = document.getElementById('difficulty-filter').value;
+    
+    // Clear search when applying filters
+    isSearchActive = false;
+    searchResults = [];
+    document.getElementById('search-input').value = '';
+    
+    // If no filters selected, show nothing
+    if (!category && !difficulty) {
+        filteredExercises = [];
+        displayExercises([]);
+        updateResultsCount(0, 'initial');
+        return;
+    }
+    
+    // Simple filtering logic
+    filteredExercises = [];
+    
+    for (let i = 0; i < allExercises.length; i++) {
+        const exercise = allExercises[i];
+        let include = true;
+        
+        if (category && exercise.category !== category) {
+            include = false;
+        }
+        
+        if (difficulty && exercise.difficulty !== difficulty) {
+            include = false;
+        }
+        
+        if (include) {
+            filteredExercises.push(exercise);
+        }
+    }
+    
+    displayExercises(filteredExercises);
+    updateResultsCount(filteredExercises.length, 'filter');
+}
+
+function clearFilters() {
+    filteredExercises = [];
+    document.getElementById('category-filter').value = '';
+    document.getElementById('difficulty-filter').value = '';
+    
+    // Clear search as well
+    clearSearch();
+}
+
+function updateResultsCount(count, type) {
+    const totalCount = allExercises.length;
+    let message = '';
+    
+    if (type === 'search') {
+        message = `Search results: ${count} of ${totalCount} exercises`;
+    } else if (type === 'filter') {
+        message = `Filtered results: ${count} of ${totalCount} exercises`;
+    } else {
+        message = '';
+    }
+    
+    document.getElementById('results-count').textContent = message;
+}
+
+function addToWorkout(exerciseName) {
+    // This would integrate with the workout planner
+    alert(`Added ${exerciseName} to your workout!`);
+}
+</script>
+{% endblock %} 

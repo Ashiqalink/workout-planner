@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+
+{% block title %}Training Planner - Student Training System{% endblock %}
+
+{% block content %}
+<div class="planner-page">
+    <div class="page-header">
+        <h1>📋 Training Planner</h1>
+        <p>Create custom workouts tailored to your goals and schedule</p>
+    </div>
+
+    <div class="planner-container">
+        <div class="planner-form">
+            <h2>Create Your Workout</h2>
+            <form id="workout-form">
+                <div class="form-group">
+                    <label for="domains">Training Domains:</label>
+                    <div class="checkbox-group">
+                        <label><input type="checkbox" name="domains" value="Strength"> 💪 Strength</label>
+                        <label><input type="checkbox" name="domains" value="Speed & Mobility"> ⚡ Speed & Mobility</label>
+                        <label><input type="checkbox" name="domains" value="Endurance"> 🏃 Endurance</label>
+                        <label><input type="checkbox" name="domains" value="Agility"> 🤸 Agility</label>
+                        <label><input type="checkbox" name="domains" value="Cognitive"> 🧠 Cognitive</label>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="duration">Available Time:</label>
+                    <select id="duration" name="duration" required>
+                        <option value="">Select duration</option>
+                        <option value="5">5 minutes</option>
+                        <option value="10">10 minutes</option>
+                        <option value="15">15 minutes</option>
+                        <option value="20">20 minutes</option>
+                        <option value="25">25 minutes</option>
+                        <option value="30">30 minutes</option>
+                        <option value="35">35 minutes</option>
+                        <option value="40">40 minutes</option>
+                        <option value="45">45 minutes</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="difficulty">Difficulty Level:</label>
+                    <select id="difficulty" name="difficulty" required>
+                        <option value="">Select difficulty</option>
+                        <option value="Beginner">Beginner</option>
+                        <option value="Intermediate">Intermediate</option>
+                        <option value="Advanced">Advanced</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="focus">Focus Area (Optional):</label>
+                    <select id="focus" name="focus">
+                        <option value="">No specific focus</option>
+                        <option value="upper_body">Upper Body</option>
+                        <option value="lower_body">Lower Body</option>
+                        <option value="core">Core</option>
+                        <option value="cardio">Cardiovascular</option>
+                        <option value="flexibility">Flexibility</option>
+                    </select>
+                </div>
+
+                <button type="submit" class="btn btn-primary">Generate Workout</button>
+            </form>
+        </div>
+
+        <div class="workout-preview" id="workout-preview" style="display: none;">
+            <h2>Your Custom Workout</h2>
+            <div class="workout-summary">
+                <div class="summary-stats">
+                    <div class="stat">
+                        <span class="stat-number" id="total-exercises">0</span>
+                        <span class="stat-label">Exercises</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-number" id="total-duration">0</span>
+                        <span class="stat-label">Minutes</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-number" id="workout-difficulty">-</span>
+                        <span class="stat-label">Difficulty</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="exercises-list" id="exercises-list">
+                <!-- Generated exercises will appear here -->
+            </div>
+
+            <div class="workout-actions">
+                <button class="btn btn-secondary" onclick="regenerateWorkout()">Regenerate</button>
+                <button class="btn btn-primary" onclick="startWorkout()">Start Workout</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.getElementById('workout-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    plannerGenerateWorkout();
+});
+
+function plannerGenerateWorkout() {
+    const formData = new FormData(document.getElementById('workout-form'));
+    const data = {
+        domains: Array.from(formData.getAll('domains')),
+        duration: formData.get('duration'),
+        difficulty: formData.get('difficulty'),
+        focus: formData.get('focus')
+    };
+
+    if (data.domains.length === 0) {
+        alert('Please select at least one training domain.');
+        return;
+    }
+
+    fetch('/api/generate-workout', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            displayWorkout(data);
+        } else {
+            alert('Error generating workout: ' + (data.error || 'Unknown error'));
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error generating workout. Please try again.');
+    });
+}
+
+function displayWorkout(workout) {
+    document.getElementById('workout-preview').style.display = 'block';
+    document.getElementById('total-exercises').textContent = workout.exercises.length;
+    document.getElementById('total-duration').textContent = workout.total_duration;
+    document.getElementById('workout-difficulty').textContent = workout.difficulty || 'Not specified';
+
+    const exercisesList = document.getElementById('exercises-list');
+    exercisesList.innerHTML = '';
+
+    workout.exercises.forEach((exercise, index) => {
+        const exerciseItem = document.createElement('div');
+        exerciseItem.className = 'exercise-item';
+        exerciseItem.innerHTML = `
+            <div class="exercise-number">${index + 1}</div>
+            <div class="exercise-info">
+                <h4>${exercise.name}</h4>
+                <p>${exercise.category} • ${Math.round(exercise.duration * 60)} seconds</p>
+                <p class="exercise-description">${exercise.description}</p>
+            </div>
+            <div class="exercise-category">
+                <span class="category-badge ${exercise.category.toLowerCase().replace(' & ', '-')}">${exercise.category}</span>
+            </div>
+        `;
+        exercisesList.appendChild(exerciseItem);
+    });
+
+    // Store workout in session storage for the session page
+    sessionStorage.setItem('currentWorkout', JSON.stringify(workout));
+}
+
+function regenerateWorkout() {
+    plannerGenerateWorkout();
+}
+
+function startWorkout() {
+    window.location.href = '/session';
+}
+</script>
+{% endblock %} 

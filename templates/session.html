@@ -1,0 +1,811 @@
+{% extends "base.html" %}
+
+{% block title %}Training Session - Student Training System{% endblock %}
+
+{% block content %}
+<div class="session-page">
+    <div class="session-header">
+        <h1>🏃‍♂️ Training Session</h1>
+        <div class="session-info" id="session-info">
+            <div class="session-stats">
+                <span id="current-exercise">Ready to start</span>
+                <span id="session-timer">00:00</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Progress Tracking Debug Section -->
+    <div class="debug-section" style="background: #e8f4fd; padding: 15px; margin: 15px 0; border-radius: 8px; border: 2px solid #2196F3;">
+        <h4 style="margin: 0 0 15px 0; color: #1976D2;">📊 Progress Tracking Debug</h4>
+        <div class="debug-buttons" style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px;">
+            <button class="btn btn-sm btn-primary" onclick="debugTestSessionData()">Test Session Data</button>
+            <button class="btn btn-sm btn-success" onclick="debugSaveTestSession()">Save Test Session</button>
+            <button class="btn btn-sm btn-info" onclick="debugCheckProgress()">Check Progress Data</button>
+            <button class="btn btn-sm btn-warning" onclick="debugSimulateSession()">Simulate Full Session</button>
+            <button class="btn btn-sm btn-secondary" onclick="debugClearData()">Clear Debug Log</button>
+        </div>
+        <div id="progress-debug-output" style="background: #f5f5f5; padding: 10px; border-radius: 5px; font-family: monospace; font-size: 12px; color: #333; max-height: 200px; overflow-y: auto;"></div>
+    </div>
+
+    <div class="session-container" id="session-container">
+        <div class="exercise-display" id="exercise-display">
+            <div class="welcome-screen" id="welcome-screen">
+                <h2>Welcome to Your Training Session!</h2>
+                <p>Get ready to complete your workout. Make sure you have enough space and are ready to begin.</p>
+                <div class="workout-summary" id="workout-summary">
+                    <!-- Workout summary will be populated by JavaScript -->
+                </div>
+                <button class="btn btn-primary" onclick="startSession()">Start Workout</button>
+            </div>
+            
+            <div class="rest-screen" id="rest-screen" style="display: none;">
+                <h2>🛌 Rest Time</h2>
+                <div class="rest-info">
+                    <p>Take a break and prepare for the next exercise</p>
+                    <div class="rest-details" id="rest-details">
+                        <p>Rest time: <span id="rest-duration">30</span> seconds</p>
+                        <p>Category: <span id="rest-category">Strength & Power</span></p>
+                    </div>
+                    <div class="rest-timer" id="rest-timer">00:00</div>
+                    <div class="rest-progress">
+                        <div class="rest-progress-bar">
+                            <div class="rest-progress-fill" id="rest-progress-fill"></div>
+                        </div>
+                    </div>
+                </div>
+                <button class="btn btn-secondary" onclick="skipRest()">Skip Rest</button>
+            </div>
+        </div>
+
+        <div class="session-controls">
+            <div class="control-buttons">
+                <button class="btn btn-secondary" id="pause-btn" onclick="pauseSession()" style="display: none;">Pause</button>
+                <button class="btn btn-primary" id="resume-btn" onclick="resumeSession()" style="display: none;">Resume</button>
+                <button class="btn btn-danger" id="stop-btn" onclick="showStopConfirmation()" style="display: none;">Stop Session</button>
+            </div>
+            
+            <div class="progress-indicator">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="session-progress"></div>
+                </div>
+                <div class="progress-details">
+                    <span id="progress-text">0% Complete</span>
+                    <span id="time-progress">00:00 / 00:00</span>
+                    <span id="exercise-progress">0 / 0 exercises</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="exercise-list" id="exercise-list">
+            <!-- Exercise list will be populated by JavaScript -->
+        </div>
+    </div>
+
+    <div class="session-complete" id="session-complete" style="display: none;">
+        <div class="completion-card">
+            <h2>🎉 Session Complete!</h2>
+            <div class="completion-stats">
+                <div class="stat">
+                    <span class="stat-number" id="completed-exercises">0</span>
+                    <span class="stat-label">Exercises Completed</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-number" id="total-time">0</span>
+                    <span class="stat-label">Total Time</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-number" id="session-score">0</span>
+                    <span class="stat-label">Session Score</span>
+                </div>
+            </div>
+            <div class="completion-actions">
+                <button class="btn btn-primary" onclick="saveSessionData()">Save Session</button>
+                <button class="btn btn-secondary" onclick="window.location.href='/'">Back to Dashboard</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Stop Confirmation Modal -->
+<div class="modal-overlay" id="stop-modal" style="display: none;">
+    <div class="modal-content">
+        <h3>Stop Session?</h3>
+        <p>Are you sure you want to stop this session? Progress will not be saved.</p>
+        <div class="modal-actions">
+            <button class="btn btn-secondary" onclick="hideStopConfirmation()">Cancel</button>
+            <button class="btn btn-danger" onclick="stopSession()">Stop Session</button>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentWorkout = null;
+let currentExerciseIndex = 0;
+let sessionTimer = null;
+let exerciseTimer = null;
+let restTimer = null;
+let sessionStartTime = null;
+let isPaused = false;
+let isResting = false;
+let restTimes = {};
+let sessionData = {
+    exercises: [],
+    startTime: null,
+    endTime: null,
+    totalDuration: 0,
+    completedExercises: 0,
+    domainProgress: {},
+    sessionType: 'custom',
+    difficulty: 'beginner'
+};
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadWorkout();
+    loadRestTimes();
+});
+
+async function loadRestTimes() {
+    try {
+        const response = await fetch('/api/rest-times');
+        const data = await response.json();
+        restTimes = data.rest_times;
+    } catch (error) {
+        console.error('Failed to load rest times:', error);
+    }
+}
+
+function loadWorkout() {
+    const storedWorkout = sessionStorage.getItem('currentWorkout');
+    if (storedWorkout) {
+        currentWorkout = JSON.parse(storedWorkout);
+        displayWorkoutSummary();
+        displayExerciseList();
+    } else {
+        // No workout planned, show default options
+        document.getElementById('welcome-screen').innerHTML = `
+            <h2>No Workout Planned</h2>
+            <p>You don't have a workout planned. Would you like to create one?</p>
+            <div class="action-buttons">
+                <button class="btn btn-primary" onclick="window.location.href='/planner'">Create Workout</button>
+                <button class="btn btn-secondary" onclick="window.location.href='/'">Back to Dashboard</button>
+            </div>
+        `;
+    }
+}
+
+function displayWorkoutSummary() {
+    if (!currentWorkout) return;
+    
+    const summary = document.getElementById('workout-summary');
+    summary.innerHTML = `
+        <div class="summary-item">
+            <strong>Total Exercises:</strong> ${currentWorkout.exercises.length}
+        </div>
+        <div class="summary-item">
+            <strong>Estimated Duration:</strong> ${currentWorkout.total_duration} minutes
+        </div>
+        <div class="summary-item">
+            <strong>Difficulty:</strong> ${currentWorkout.difficulty || 'Not specified'}
+        </div>
+    `;
+}
+
+function displayExerciseList() {
+    if (!currentWorkout) return;
+    
+    const list = document.getElementById('exercise-list');
+    list.innerHTML = '';
+    
+    currentWorkout.exercises.forEach((exercise, index) => {
+        const exerciseItem = document.createElement('div');
+        exerciseItem.className = 'exercise-item';
+        exerciseItem.id = `exercise-${index}`;
+        exerciseItem.innerHTML = `
+            <div class="exercise-number">${index + 1}</div>
+            <div class="exercise-info">
+                <h4>${exercise.name}</h4>
+                <p>${exercise.category} • ${Math.round(exercise.duration * 60)} seconds</p>
+            </div>
+            <div class="exercise-status" id="status-${index}">Pending</div>
+        `;
+        list.appendChild(exerciseItem);
+    });
+}
+
+function startSession() {
+    if (!currentWorkout) return;
+    
+    sessionData.startTime = new Date();
+    sessionData.exercises = currentWorkout.exercises;
+    sessionData.sessionType = 'custom';
+    sessionData.difficulty = currentWorkout.difficulty || 'beginner';
+    sessionData.domainProgress = {};
+    
+    // Initialize domain progress tracking
+    currentWorkout.exercises.forEach(exercise => {
+        const domain = getDomainKey(exercise.category);
+        if (domain) {
+            if (!sessionData.domainProgress[domain]) {
+                sessionData.domainProgress[domain] = {
+                    exercises: 0,
+                    minutes: 0
+                };
+            }
+        }
+    });
+    
+    sessionStartTime = Date.now();
+    
+    document.getElementById('welcome-screen').style.display = 'none';
+    document.getElementById('pause-btn').style.display = 'inline-block';
+    document.getElementById('stop-btn').style.display = 'inline-block';
+    
+    startExercise(0);
+    startSessionTimer();
+}
+
+function getDomainKey(category) {
+    const categoryMapping = {
+        'Strength': 'strength_power',
+        'Strength & Power': 'strength_power',
+        'Speed': 'speed_mobility',
+        'Speed & Mobility': 'speed_mobility',
+        'Mobility': 'speed_mobility',
+        'Endurance': 'endurance',
+        'Agility': 'agility',
+        'Cognitive': 'cognition',
+        'Cognition': 'cognition'
+    };
+    return categoryMapping[category] || category.toLowerCase().replace(' & ', '_');
+}
+
+function displayCurrentExercise() {
+    if (!currentWorkout) return;
+    const exercise = currentWorkout.exercises[currentExerciseIndex];
+    const display = document.getElementById('exercise-display');
+    
+    // Hide rest screen if it exists
+    const restScreen = document.getElementById('rest-screen');
+    if (restScreen) {
+        restScreen.style.display = 'none';
+    }
+    
+    // Show exercise details
+    display.innerHTML = `
+        <div class="exercise-details-live">
+            <h2>Current Exercise</h2>
+            <div class="exercise-main-info">
+                <h3>${exercise.name}</h3>
+                <span class="category-badge">${exercise.category}</span>
+                <span class="duration-badge">${Math.round(exercise.duration * 60)} seconds</span>
+            </div>
+            <div class="exercise-meta">
+                <p><strong>Target Muscles:</strong> ${exercise.target_muscles || '-'}</p>
+                <p><strong>Instructions:</strong> ${exercise.instructions || '-'}</p>
+            </div>
+        </div>
+    `;
+    
+    // Re-add rest screen to display if it was removed
+    if (!document.getElementById('rest-screen')) {
+        const restScreenDiv = document.createElement('div');
+        restScreenDiv.id = 'rest-screen';
+        restScreenDiv.style.display = 'none';
+        display.appendChild(restScreenDiv);
+    }
+}
+
+function startExercise(index) {
+    if (index >= currentWorkout.exercises.length) {
+        completeSession();
+        return;
+    }
+    currentExerciseIndex = index;
+    // Update exercise display
+    displayCurrentExercise();
+    // Update exercise list
+    document.querySelectorAll('.exercise-item').forEach((item, i) => {
+        if (i < index) {
+            item.querySelector('.exercise-status').textContent = 'Completed';
+            item.classList.add('completed');
+        } else if (i === index) {
+            item.querySelector('.exercise-status').textContent = 'In Progress';
+            item.classList.add('active');
+        } else {
+            item.querySelector('.exercise-status').textContent = 'Pending';
+            item.classList.remove('active', 'completed');
+        }
+    });
+    // Start exercise timer
+    startExerciseTimer(currentWorkout.exercises[index].duration);
+}
+
+function startExerciseTimer(duration) {
+    let timeLeft = duration * 60; // Convert to seconds
+    
+    // Clear any existing timer
+    if (exerciseTimer) {
+        clearInterval(exerciseTimer);
+    }
+    
+    exerciseTimer = setInterval(() => {
+        if (isPaused) return;
+        
+        timeLeft--;
+        const minutes = Math.floor(timeLeft / 60);
+        const seconds = timeLeft % 60;
+        
+        if (timeLeft <= 0) {
+            clearInterval(exerciseTimer);
+            skipCurrentExercise();
+        }
+    }, 1000);
+}
+
+function startSessionTimer() {
+    sessionTimer = setInterval(() => {
+        if (isPaused) return;
+        
+        const elapsed = Math.floor((Date.now() - sessionStartTime) / 1000);
+        const minutes = Math.floor(elapsed / 60);
+        const seconds = elapsed % 60;
+        
+        // Update session timer display (top right)
+        document.getElementById('session-timer').textContent = 
+            `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        
+        // Calculate progress based on actual time vs estimated total time
+        const totalEstimatedSeconds = currentWorkout.total_duration * 60;
+        const progress = Math.min((elapsed / totalEstimatedSeconds) * 100, 100);
+        
+        // Format time display properly
+        const totalMinutes = Math.floor(totalEstimatedSeconds / 60);
+        const totalSeconds = totalEstimatedSeconds % 60;
+        
+        document.getElementById('session-progress').style.width = `${progress}%`;
+        document.getElementById('progress-text').textContent = `${Math.round(progress)}% Complete`;
+        document.getElementById('time-progress').textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')} / ${totalMinutes.toString().padStart(2, '0')}:${totalSeconds.toString().padStart(2, '0')}`;
+        document.getElementById('exercise-progress').textContent = `${sessionData.completedExercises} / ${currentWorkout.exercises.length} exercises`;
+    }, 1000);
+}
+
+function pauseSession() {
+    isPaused = true;
+    document.getElementById('pause-btn').style.display = 'none';
+    document.getElementById('resume-btn').style.display = 'inline-block';
+}
+
+function resumeSession() {
+    isPaused = false;
+    document.getElementById('resume-btn').style.display = 'none';
+    document.getElementById('pause-btn').style.display = 'inline-block';
+}
+
+function showStopConfirmation() {
+    document.getElementById('stop-modal').style.display = 'flex';
+}
+
+function hideStopConfirmation() {
+    document.getElementById('stop-modal').style.display = 'none';
+}
+
+function stopSession() {
+    hideStopConfirmation();
+    completeSession(true);
+}
+
+function skipCurrentExercise() {
+    console.log('Debug: Skipping current exercise');
+    if (exerciseTimer) {
+        clearInterval(exerciseTimer);
+    }
+    
+    // Update domain progress for completed exercise
+    const currentExercise = currentWorkout.exercises[currentExerciseIndex];
+    const domain = getDomainKey(currentExercise.category);
+    if (domain && sessionData.domainProgress[domain]) {
+        sessionData.domainProgress[domain].exercises++;
+        sessionData.domainProgress[domain].minutes += Math.round(currentExercise.duration * 60);
+    }
+    
+    sessionData.completedExercises++;
+    
+    // Check if there are more exercises
+    if (currentExerciseIndex + 1 < currentWorkout.exercises.length) {
+        startRestTimer();
+    } else {
+        completeSession();
+    }
+}
+
+function completeSession(stopped = false) {
+    sessionData.endTime = new Date();
+    sessionData.totalDuration = Math.floor((sessionData.endTime - sessionData.startTime) / 1000 / 60);
+    
+    // Update domain progress for any remaining exercises if stopped
+    if (stopped && currentExerciseIndex < currentWorkout.exercises.length) {
+        const currentExercise = currentWorkout.exercises[currentExerciseIndex];
+        const domain = getDomainKey(currentExercise.category);
+        if (domain && sessionData.domainProgress[domain]) {
+            sessionData.domainProgress[domain].exercises++;
+            sessionData.domainProgress[domain].minutes += Math.round(currentExercise.duration * 60);
+        }
+    }
+    
+    if (sessionTimer) {
+        clearInterval(sessionTimer);
+    }
+    if (exerciseTimer) {
+        clearInterval(exerciseTimer);
+    }
+    if (restTimer) {
+        clearInterval(restTimer);
+    }
+    
+    isResting = false;
+    
+    document.getElementById('session-container').style.display = 'none';
+    document.getElementById('session-complete').style.display = 'block';
+    
+    document.getElementById('completed-exercises').textContent = sessionData.completedExercises;
+    document.getElementById('total-time').textContent = sessionData.totalDuration;
+    document.getElementById('session-score').textContent = Math.round((sessionData.completedExercises / currentWorkout.exercises.length) * 100);
+}
+
+function saveSessionData() {
+    // Prepare complete session data for progress tracking
+    const completeSessionData = {
+        exercises: sessionData.exercises.map(exercise => ({
+            name: exercise.name,
+            category: exercise.category,
+            duration: exercise.duration,
+            difficulty: exercise.difficulty || 'beginner'
+        })),
+        startTime: sessionData.startTime,
+        endTime: sessionData.endTime || new Date(),
+        totalDuration: sessionData.totalDuration || 0,
+        completedExercises: sessionData.completedExercises || 0,
+        domainProgress: sessionData.domainProgress || {},
+        sessionType: sessionData.sessionType || 'custom',
+        difficulty: sessionData.difficulty || 'beginner'
+    };
+    
+    console.log('Saving session data:', completeSessionData);
+    
+    // Use the TrainingApp.saveSession function from app.js
+    if (window.TrainingApp && window.TrainingApp.saveSession) {
+        window.TrainingApp.saveSession(completeSessionData)
+            .then(data => {
+                console.log('Response data:', data);
+                if (data.status === 'success') {
+                    alert('Session saved successfully! Your progress has been updated.');
+                    // Enable a button to go to progress page instead of redirecting automatically
+                    let actions = document.querySelector('.completion-actions');
+                    if (actions && !document.getElementById('go-to-progress-btn')) {
+                        let btn = document.createElement('button');
+                        btn.className = 'btn btn-success';
+                        btn.id = 'go-to-progress-btn';
+                        btn.textContent = 'Go to Progress Tracking';
+                        btn.onclick = function() { window.location.href = '/progress'; };
+                        actions.appendChild(btn);
+                    }
+                    // Optionally, disable the save button to prevent double save
+                    let saveBtn = document.querySelector('.completion-actions .btn.btn-primary');
+                    if (saveBtn) saveBtn.disabled = true;
+                } else {
+                    alert('Error saving session: ' + (data.message || 'Unknown error'));
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error saving session: ' + error.message);
+            });
+    } else {
+        // Fallback to direct fetch if TrainingApp is not available
+        fetch('/api/complete_session', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(completeSessionData)
+        })
+        .then(response => {
+            console.log('Response status:', response.status);
+            if (!response.ok) {
+                return response.text().then(text => {
+                    console.log('Response text:', text);
+                    throw new Error(`HTTP ${response.status}: ${text}`);
+                });
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log('Response data:', data);
+            if (data.status === 'success') {
+                alert('Session saved successfully! Your progress has been updated.');
+                // Enable a button to go to progress page instead of redirecting automatically
+                let actions = document.querySelector('.completion-actions');
+                if (actions && !document.getElementById('go-to-progress-btn')) {
+                    let btn = document.createElement('button');
+                    btn.className = 'btn btn-success';
+                    btn.id = 'go-to-progress-btn';
+                    btn.textContent = 'Go to Progress Tracking';
+                    btn.onclick = function() { window.location.href = '/progress'; };
+                    actions.appendChild(btn);
+                }
+                // Optionally, disable the save button to prevent double save
+                let saveBtn = document.querySelector('.completion-actions .btn.btn-primary');
+                if (saveBtn) saveBtn.disabled = true;
+            } else {
+                alert('Error saving session: ' + (data.message || 'Unknown error'));
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Error saving session: ' + error.message);
+        });
+    }
+}
+
+function startRestTimer() {
+    const currentExercise = currentWorkout.exercises[currentExerciseIndex];
+    const nextExercise = currentWorkout.exercises[currentExerciseIndex + 1];
+    
+    // Get rest time based on current exercise category and difficulty
+    const category = currentExercise.category;
+    const difficulty = currentWorkout.difficulty || 'beginner';
+    const difficultyKey = difficulty.toLowerCase();
+    
+    // Map exercise categories to rest time categories
+    const categoryMapping = {
+        'Strength': 'Strength & Power',
+        'Speed': 'Speed & Mobility',
+        'Mobility': 'Speed & Mobility',
+        'Endurance': 'Endurance',
+        'Agility': 'Agility',
+        'Cognitive': 'Cognition',
+        'Cognition': 'Cognition'
+    };
+    
+    let restDuration = 30; // Default rest time
+    const mappedCategory = categoryMapping[category] || category;
+    
+    if (restTimes[mappedCategory] && restTimes[mappedCategory][difficultyKey]) {
+        restDuration = restTimes[mappedCategory][difficultyKey];
+    }
+    
+    isResting = true;
+    let timeLeft = restDuration;
+    
+    // Ensure rest screen exists and show it
+    let restScreen = document.getElementById('rest-screen');
+    if (!restScreen) {
+        // Create rest screen if it doesn't exist
+        const exerciseDisplay = document.getElementById('exercise-display');
+        restScreen = document.createElement('div');
+        restScreen.id = 'rest-screen';
+        restScreen.style.display = 'none';
+        exerciseDisplay.appendChild(restScreen);
+    }
+    
+    restScreen.style.display = 'block';
+    restScreen.innerHTML = `
+        <h2>🛌 Rest Time</h2>
+        <div class="rest-info">
+            <p>Take a break and prepare for the next exercise</p>
+            <div class="rest-details" id="rest-details">
+                <p>Rest time: <span id="rest-duration">${restDuration}</span> seconds</p>
+                <p>Next: <strong>${nextExercise ? nextExercise.name : 'Session Complete'}</strong></p>
+                <p>Category: <span id="rest-category">${mappedCategory}</span></p>
+            </div>
+            <div class="rest-timer" id="rest-timer">00:00</div>
+            <div class="rest-progress">
+                <div class="rest-progress-bar">
+                    <div class="rest-progress-fill" id="rest-progress-fill"></div>
+                </div>
+            </div>
+        </div>
+        <button class="btn btn-secondary" onclick="skipRest()">Skip Rest</button>
+    `;
+    
+    // Clear any existing rest timer
+    if (restTimer) {
+        clearInterval(restTimer);
+    }
+    
+    restTimer = setInterval(() => {
+        if (isPaused) return;
+        
+        timeLeft--;
+        const minutes = Math.floor(timeLeft / 60);
+        const seconds = timeLeft % 60;
+        
+        const restTimerElement = document.getElementById('rest-timer');
+        if (restTimerElement) {
+            restTimerElement.textContent = 
+                `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        }
+        
+        const progressFill = document.getElementById('rest-progress-fill');
+        if (progressFill) {
+            const progress = ((restDuration - timeLeft) / restDuration) * 100;
+            progressFill.style.width = `${progress}%`;
+        }
+        
+        if (timeLeft <= 0) {
+            clearInterval(restTimer);
+            isResting = false;
+            startExercise(currentExerciseIndex + 1);
+        }
+    }, 1000);
+}
+
+function skipRest() {
+    if (restTimer) {
+        clearInterval(restTimer);
+    }
+    isResting = false;
+    startExercise(currentExerciseIndex + 1);
+}
+
+// Progress Tracking Debug Functions
+function debugTestSessionData() {
+    progressDebugLog('=== Testing Current Session Data ===');
+    progressDebugLog('Current workout: ' + (currentWorkout ? 'Loaded' : 'Not loaded'));
+    
+    if (currentWorkout) {
+        progressDebugLog('Workout exercises: ' + currentWorkout.exercises.length);
+        progressDebugLog('Workout difficulty: ' + (currentWorkout.difficulty || 'Not set'));
+        progressDebugLog('Session data: ' + JSON.stringify(sessionData, null, 2));
+    }
+    
+    // Test domain progress structure
+    const testDomainProgress = {
+        'strength_power': { exercises: 2, minutes: 120, progress: 60 },
+        'speed_mobility': { exercises: 1, minutes: 60, progress: 30 },
+        'endurance': { exercises: 0, minutes: 0, progress: 0 },
+        'agility': { exercises: 0, minutes: 0, progress: 0 },
+        'cognition': { exercises: 0, minutes: 0, progress: 0 }
+    };
+    progressDebugLog('Test domain progress structure: ' + JSON.stringify(testDomainProgress, null, 2));
+}
+
+function debugSaveTestSession() {
+    progressDebugLog('=== Testing Session Save ===');
+    
+    // Create test session data
+    const testSessionData = {
+        exercises: [
+            { name: 'Push-ups', category: 'Strength', duration: 2, difficulty: 'beginner' },
+            { name: 'Squats', category: 'Strength', duration: 2, difficulty: 'beginner' },
+            { name: 'Jumping Jacks', category: 'Speed', duration: 1, difficulty: 'beginner' }
+        ],
+        startTime: new Date(Date.now() - 30 * 60 * 1000), // 30 minutes ago
+        endTime: new Date(),
+        totalDuration: 30,
+        completedExercises: 3,
+        domainProgress: {
+            'strength_power': { exercises: 2, minutes: 120, progress: 60 },
+            'speed_mobility': { exercises: 1, minutes: 60, progress: 30 },
+            'endurance': { exercises: 0, minutes: 0, progress: 0 },
+            'agility': { exercises: 0, minutes: 0, progress: 0 },
+            'cognition': { exercises: 0, minutes: 0, progress: 0 }
+        },
+        sessionType: 'test',
+        difficulty: 'beginner'
+    };
+    
+    progressDebugLog('Sending test session data to server...');
+    console.log('Test session data:', testSessionData);
+    
+    fetch('/api/complete_session', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(testSessionData)
+    })
+    .then(response => {
+        progressDebugLog('Server response status: ' + response.status);
+        return response.json();
+    })
+    .then(data => {
+        progressDebugLog('Server response: ' + JSON.stringify(data, null, 2));
+        if (data.status === 'success') {
+            progressDebugLog('✅ Test session saved successfully!');
+        } else {
+            progressDebugLog('❌ Error saving test session: ' + data.message);
+        }
+    })
+    .catch(error => {
+        progressDebugLog('❌ Network error: ' + error.message);
+        console.error('Error:', error);
+    });
+}
+
+function debugCheckProgress() {
+    progressDebugLog('=== Checking Progress Data ===');
+    
+    fetch('/api/user_progress')
+    .then(response => {
+        progressDebugLog('Progress API response status: ' + response.status);
+        return response.json();
+    })
+    .then(data => {
+        progressDebugLog('Progress data: ' + JSON.stringify(data, null, 2));
+    })
+    .catch(error => {
+        progressDebugLog('❌ Error fetching progress: ' + error.message);
+        console.error('Error:', error);
+    });
+}
+
+function debugSimulateSession() {
+    progressDebugLog('=== Simulating Full Session ===');
+    
+    // Simulate a complete training session
+    const simulatedSession = {
+        exercises: [
+            { name: 'Push-ups', category: 'Strength', duration: 2, difficulty: 'beginner' },
+            { name: 'Squats', category: 'Strength', duration: 2, difficulty: 'beginner' },
+            { name: 'Jumping Jacks', category: 'Speed', duration: 1, difficulty: 'beginner' },
+            { name: 'Plank', category: 'Strength', duration: 1, difficulty: 'beginner' },
+            { name: 'Burpees', category: 'Speed', duration: 2, difficulty: 'beginner' }
+        ],
+        startTime: new Date(Date.now() - 45 * 60 * 1000), // 45 minutes ago
+        endTime: new Date(),
+        totalDuration: 45,
+        completedExercises: 5,
+        domainProgress: {
+            'strength_power': { exercises: 3, minutes: 180, progress: 75 },
+            'speed_mobility': { exercises: 2, minutes: 120, progress: 50 },
+            'endurance': { exercises: 0, minutes: 0, progress: 0 },
+            'agility': { exercises: 0, minutes: 0, progress: 0 },
+            'cognition': { exercises: 0, minutes: 0, progress: 0 }
+        },
+        sessionType: 'simulated',
+        difficulty: 'beginner'
+    };
+    
+    progressDebugLog('Simulated session data: ' + JSON.stringify(simulatedSession, null, 2));
+    
+    // Save the simulated session
+    fetch('/api/complete_session', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(simulatedSession)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            progressDebugLog('✅ Simulated session saved successfully!');
+            // Check progress after saving
+            setTimeout(() => {
+                debugCheckProgress();
+            }, 1000);
+        } else {
+            progressDebugLog('❌ Error saving simulated session: ' + data.message);
+        }
+    })
+    .catch(error => {
+        progressDebugLog('❌ Error: ' + error.message);
+    });
+}
+
+function debugClearData() {
+    const debugOutput = document.getElementById('progress-debug-output');
+    debugOutput.innerHTML = '';
+    progressDebugLog('Debug log cleared');
+}
+
+function progressDebugLog(message) {
+    const debugOutput = document.getElementById('progress-debug-output');
+    const timestamp = new Date().toLocaleTimeString();
+    debugOutput.innerHTML += `<div>[${timestamp}] ${message}</div>`;
+    debugOutput.scrollTop = debugOutput.scrollHeight;
+    console.log(`[Progress Debug] ${message}`);
+}
+</script>
+{% endblock %} 

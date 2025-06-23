@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Student Training System{% endblock %}
+
+{% block content %}
+<div class="dashboard">
+    <div class="hero-section">
+        <h1>Welcome to Your Training Dashboard</h1>
+        <p class="subtitle">Track your progress and plan your next workout</p>
+    </div>
+
+    <div class="dashboard-grid">
+        <div class="card progress-overview">
+            <h2>📊 Progress Overview</h2>
+            <div class="progress-stats">
+                <div class="stat">
+                    <span class="stat-number">{{ progress_data.total_sessions }}</span>
+                    <span class="stat-label">Sessions Completed</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-number">{{ progress_data.total_minutes }}</span>
+                    <span class="stat-label">Total Minutes</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-number">{{ progress_data.current_streak }}</span>
+                    <span class="stat-label">Day Streak</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="card today-session">
+            <h2>🎯 Today's Session</h2>
+            {% if today_session %}
+                <div class="session-info">
+                    <h3>{{ today_session.name }}</h3>
+                    <p>{{ today_session.description }}</p>
+                    <div class="session-meta">
+                        <span>⏱️ {{ today_session.duration }} minutes</span>
+                        <span>💪 {{ today_session.difficulty }}</span>
+                    </div>
+                    <a href="{{ url_for('training_session') }}" class="btn btn-primary">Start Session</a>
+                </div>
+            {% else %}
+                <p>No session planned for today. Create a custom workout!</p>
+                <a href="{{ url_for('planner') }}" class="btn btn-secondary">Plan Workout</a>
+            {% endif %}
+        </div>
+
+        <div class="card quick-actions">
+            <h2>⚡ Quick Actions</h2>
+            <div class="action-buttons">
+                <a href="{{ url_for('library') }}" class="btn btn-outline">Browse Exercises</a>
+                <a href="{{ url_for('planner') }}" class="btn btn-outline">Create Workout</a>
+                <a href="{{ url_for('progress') }}" class="btn btn-outline">View Progress</a>
+                <a href="{{ url_for('training_session') }}" class="btn btn-primary">Start Training</a>
+            </div>
+        </div>
+
+        <div class="card recent-activity">
+            <h2>📈 Recent Activity</h2>
+            {% if recent_sessions %}
+                <div class="activity-list">
+                    {% for session in recent_sessions %}
+                    <div class="activity-item">
+                        <div class="activity-date">{{ session.date }}</div>
+                        <div class="activity-details">
+                            <strong>{{ session.name }}</strong>
+                            <span>{{ session.duration }} minutes</span>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p>No recent sessions. Start your first workout!</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %} 
