@@ -1716,3 +1716,203 @@ ul { list-style: none; }
 .icon-muted { color: var(--text-muted); }
 .icon-fill { fill: currentColor; }
 .icon-inline { display: inline-block; vertical-align: middle; }
+
+/* --- KPI Stats Dashboard grid --- */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 28px;
+}
+.kpi-card {
+  background: var(--surface);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  padding: 20px 24px;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  animation: slideUp 0.4s ease both;
+  transition: var(--transition);
+}
+.kpi-card:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+.kpi-value {
+  font-family: var(--font-head);
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1;
+}
+.kpi-label {
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+@media (max-width: 600px) {
+  .kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (max-width: 400px) {
+  .kpi-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* --- Saved Workout Templates Layout --- */
+.saved-templates-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+.saved-template-card {
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 10px;
+}
+.saved-template-title {
+  font-family: var(--font-head);
+  font-size: 1.05rem;
+  margin: 0 0 6px 0;
+  color: var(--text);
+}
+.saved-template-desc {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 0 0 10px 0;
+  line-height: 1.45;
+}
+.saved-template-exercises {
+  font-size: 0.75rem;
+  color: var(--text-light);
+  margin: 0 0 12px 0;
+  line-height: 1.35;
+}
+.saved-template-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: auto;
+  border-top: 1px solid var(--border-light);
+  padding-top: 12px;
+}
+.saved-template-footer .session-meta-chip {
+  margin: 0;
+}
+.saved-template-footer .btn-sm {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 0.8rem;
+}
+
+/* --- Library Form Layouts --- */
+.library-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 15px;
+  margin-bottom: 24px;
+}
+.library-header-row .btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.exercise-form-panel {
+  margin-bottom: 24px;
+}
+.exercise-form-grid-4 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 15px;
+  margin-bottom: 15px;
+}
+.exercise-form-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 15px;
+  margin-bottom: 15px;
+}
+@media (max-width: 600px) {
+  .exercise-form-grid-2 {
+    grid-template-columns: 1fr;
+  }
+}
+.exercise-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+/* --- Planner Widget Layouts --- */
+.ai-explanation-box {
+  margin-bottom: 20px;
+  background: var(--border-light);
+  border: none;
+  display: none;
+  padding: 16px;
+}
+.ai-explanation-header {
+  font-family: var(--font-head);
+  font-size: 0.9rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--primary-mid);
+}
+.ai-explanation-text {
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+  margin: 0;
+}
+.save-template-box {
+  margin-top: 24px;
+  background: var(--surface-alt);
+  border: 1px dashed var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px;
+  border-radius: var(--radius-lg);
+}
+.save-template-header {
+  font-family: var(--font-head);
+  font-size: 0.9rem;
+  font-weight: 700;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.save-template-desc {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+.save-template-inputs {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.save-template-input {
+  flex: 1;
+  min-width: 180px;
+  padding: 6px 12px;
+  font-size: 0.85rem;
+}
+.planner-preview-play-btn {
+  margin-top: 20px;
+}

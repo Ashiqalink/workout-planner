@@ -109,11 +109,11 @@
         </div>
 
         <!-- Saved Workout Templates -->
-        <div class="card full-width slide-up" id="saved-workouts-card" style="animation-delay:0.25s; display:none;">
-            <div class="section-heading" style="margin-bottom:16px;">
+        <div class="card full-width slide-up" id="saved-workouts-card" style="display:none;">
+            <div class="section-heading">
                 <h2>💾 Saved Workout Templates</h2>
             </div>
-            <div class="saved-templates-grid" id="saved-templates-list" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:16px;">
+            <div class="saved-templates-grid" id="saved-templates-list">
                 <!-- Templates loaded via JS -->
             </div>
         </div>
@@ -230,25 +230,20 @@
                     
                     data.saved_workouts.forEach((w, idx) => {
                         const div = document.createElement('div');
-                        div.className = 'card-flat';
-                        div.style.padding = '18px';
-                        div.style.display = 'flex';
-                        div.style.flexDirection = 'column';
-                        div.style.justifyContent = 'space-between';
-                        div.style.gap = '10px';
+                        div.className = 'card-flat saved-template-card';
                         
                         const exercisesList = w.exercises.map(e => e.name).join(', ');
                         const shortList = exercisesList.length > 80 ? exercisesList.substring(0, 80) + '...' : exercisesList;
                         
                         div.innerHTML = `
                             <div>
-                                <h3 style="font-family:var(--font-head);font-size:1.05rem;margin:0 0 6px 0;color:var(--text);">${w.workout_name}</h3>
-                                <p style="font-size:0.8rem;color:var(--text-muted);margin:0 0 10px 0;line-height:1.45;">${w.workout_description || 'Custom workout template.'}</p>
-                                <p style="font-size:0.75rem;color:var(--text-light);margin:0 0 12px 0;line-height:1.35;"><strong>Exercises:</strong> ${shortList}</p>
+                                <h3 class="saved-template-title">${w.workout_name}</h3>
+                                <p class="saved-template-desc">${w.workout_description || 'Custom workout template.'}</p>
+                                <p class="saved-template-exercises"><strong>Exercises:</strong> ${shortList}</p>
                             </div>
-                            <div style="display:flex;justify-content:space-between;align-items:center;margin-top:auto;border-top:1px solid var(--border-light);padding-top:12px;">
-                                <span class="session-meta-chip" style="margin:0;"><i class="icon-sm" data-lucide="clock"></i> ${parseFloat(w.total_duration).toFixed(1)}m &bull; ${w.difficulty}</span>
-                                <button class="btn btn-sm btn-primary" onclick="startSavedWorkout(${idx})" style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;font-size:0.8rem;">
+                            <div class="saved-template-footer">
+                                <span class="session-meta-chip"><i class="icon-sm" data-lucide="clock"></i> ${parseFloat(w.total_duration).toFixed(1)}m &bull; ${w.difficulty}</span>
+                                <button class="btn btn-sm btn-primary" onclick="startSavedWorkout(${idx})">
                                     <i class="icon-sm icon-fill" data-lucide="play"></i> Start
                                 </button>
                             </div>

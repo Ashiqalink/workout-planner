@@ -172,6 +172,29 @@ def populate_exercises_db():
     conn.commit()
     conn.close()
 
+def get_all_exercises_from_db():
+    """Retrieve exercises from the SQLite database."""
+    conn = get_db_connection()
+    try:
+        rows = conn.execute('''
+            SELECT category, exercise_name, duration_minutes, primary_benefit, secondary_benefit, difficulty_level, instructions
+            FROM exercises
+        ''').fetchall()
+        exercises = []
+        for r in rows:
+            exercises.append({
+                'category': r['category'],
+                'name': r['exercise_name'],
+                'duration': float(r['duration_minutes'] or 0.5),
+                'description': r['primary_benefit'] or '',
+                'target_muscles': r['secondary_benefit'] or '',
+                'difficulty': r['difficulty_level'] or 'beginner',
+                'instructions': r['instructions'] or ''
+            })
+        return exercises
+    finally:
+        conn.close()
+
 # Load data at startup
 training_data = load_exercise_data()
 
@@ -298,22 +321,12 @@ def training_session():
 # API Routes
 @app.route('/api/exercises')
 def api_exercises():
-    """Get all exercises from the training data."""
-    if not training_data or not training_data.get('exercises'):
-        return jsonify({'exercises': []})
-    
-    # Clean NaN values from exercises before JSON serialization
-    cleaned_exercises = []
-    for exercise in training_data['exercises']:
-        cleaned_exercise = {}
-        for key, value in exercise.items():
-            if pd.isna(value):
-                cleaned_exercise[key] = None
-            else:
-                cleaned_exercise[key] = value
-        cleaned_exercises.append(cleaned_exercise)
-    
-    return jsonify({'exercises': cleaned_exercises})
+    """Get all exercises from the SQLite database."""
+    try:
+        exercises = get_all_exercises_from_db()
+        return jsonify({'exercises': exercises})
+    except Exception as e:
+        return jsonify({'exercises': [], 'error': str(e)}), 500
 
 import urllib.request
 import urllib.error
@@ -424,8 +437,13 @@ def api_generate_workout():
         difficulty = data.get('difficulty', 'beginner')
         goal = data.get('goal', '')
 
-        # Check if training data is available
-        if not training_data or not training_data.get('exercises'):
+        # Fetch exercises from database
+        try:
+            db_exercises = get_all_exercises_from_db()
+        except Exception as e:
+            return jsonify({'error': f'Database error: {str(e)}'}), 500
+
+        if not db_exercises:
             return jsonify({'error': 'No exercise data available'}), 400
 
         # Create domain to category mapping
@@ -446,22 +464,15 @@ def api_generate_workout():
         # First, prepare candidates for LLM
         llm_categories = [domain_to_category[d] for d in domains if d in domain_to_category]
         candidates = []
-        for ex in training_data.get('exercises', []):
+        for ex in db_exercises:
             if ex.get('category') in llm_categories:
-                # Clean up NaNs
-                cleaned_cand = {}
-                for key, val in ex.items():
-                    if pd.isna(val):
-                        cleaned_cand[key] = None
-                    else:
-                        cleaned_cand[key] = val
                 candidates.append({
-                    'name': cleaned_cand.get('name'),
-                    'category': cleaned_cand.get('category'),
-                    'duration': cleaned_cand.get('duration', 0.5),
-                    'difficulty': cleaned_cand.get('difficulty', 'beginner'),
-                    'description': cleaned_cand.get('description', ''),
-                    'target_muscles': cleaned_cand.get('target_muscles', '')
+                    'name': ex.get('name'),
+                    'category': ex.get('category'),
+                    'duration': ex.get('duration', 0.5),
+                    'difficulty': ex.get('difficulty', 'beginner'),
+                    'description': ex.get('description', ''),
+                    'target_muscles': ex.get('target_muscles', '')
                 })
 
         # Try local LLM generation
@@ -480,7 +491,7 @@ def api_generate_workout():
 
         # FALLBACK: Filter exercises based on criteria (original rule-based logic)
         filtered_exercises = []
-        for exercise in training_data['exercises']:
+        for exercise in db_exercises:
             # Check if exercise category matches any selected domain
             category_match = False
             for domain in domains:
@@ -496,7 +507,7 @@ def api_generate_workout():
 
         # If no exercises match criteria, try with just category match
         if not filtered_exercises:
-            for exercise in training_data['exercises']:
+            for exercise in db_exercises:
                 category_match = False
                 for domain in domains:
                     if domain in domain_to_category and domain_to_category[domain] == exercise['category']:
@@ -511,7 +522,7 @@ def api_generate_workout():
             first_domain = domains[0]
             if first_domain in domain_to_category:
                 category = domain_to_category[first_domain]
-                filtered_exercises = [ex for ex in training_data['exercises'] 
+                filtered_exercises = [ex for ex in db_exercises 
                                     if ex['category'] == category]
 
         # Select exercises to fit duration
@@ -584,7 +595,6 @@ def api_add_exercise():
         conn.commit()
         conn.close()
         
-        # Append to in-memory training_data['exercises']
         new_ex = {
             'category': category,
             'name': name,
@@ -594,9 +604,6 @@ def api_add_exercise():
             'difficulty': difficulty,
             'instructions': instructions
         }
-        if 'exercises' in training_data:
-            training_data['exercises'].append(new_ex)
-            
         return jsonify({'success': True, 'exercise': new_ex})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500

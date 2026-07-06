@@ -73,24 +73,13 @@
                     </select>
                 </div>
 
-                <!-- Focus area -->
-                <div class="form-group">
-                    <label for="focus">Focus Area <span
-                            style="font-weight:400;color:var(--text-muted)">(optional)</span></label>
-                    <select id="focus" name="focus" class="form-control">
-                        <option value="">No specific focus</option>
-                        <option value="upper_body">Upper Body</option>
-                        <option value="lower_body">Lower Body</option>
-                        <option value="core">Core</option>
-                        <option value="cardio">Cardiovascular</option>
-                        <option value="flexibility">Flexibility</option>
-                    </select>
-                </div>
 
                 <!-- Custom Goal (LLM Prompt) -->
                 <div class="form-group">
-                    <label for="goal">Custom Training Goal <span style="font-weight:400;color:var(--text-muted)">(optional)</span></label>
-                    <textarea id="goal" name="goal" class="form-control" rows="3" placeholder="e.g. Focus on dynamic stability, target weak shoulder blades, low impact for back pain"></textarea>
+                    <label for="goal">Custom Training Goal <span
+                            style="font-weight:400;color:var(--text-muted)">(optional)</span></label>
+                    <textarea id="goal" name="goal" class="form-control" rows="3"
+                        placeholder="e.g. Focus on dynamic stability, target weak shoulder blades, low impact for back pain"></textarea>
                 </div>
 
                 <button type="submit" class="btn btn-primary btn-lg btn-full" id="generate-btn"
@@ -104,8 +93,9 @@
         <div id="workout-preview" class="workout-preview-panel hidden">
             <div class="section-heading" style="margin-bottom:20px;">
                 <h2 style="font-family:var(--font-head);font-size:1.15rem;font-weight:700;">Your Workout</h2>
-                <button class="btn btn-sm btn-ghost" id="regen-btn" onclick="regenerateWorkout()" style="display:flex;align-items:center;gap:6px;"><i
-                        class="icon-md" data-lucide="refresh-cw"></i> Regenerate</button>
+                <button class="btn btn-sm btn-ghost" id="regen-btn" onclick="regenerateWorkout()"
+                    style="display:flex;align-items:center;gap:6px;"><i class="icon-md" data-lucide="refresh-cw"></i>
+                    Regenerate</button>
             </div>
 
             <div style="display:flex;gap:10px;margin-bottom:20px;">
@@ -115,11 +105,11 @@
             </div>
 
             <!-- AI Explanation Block -->
-            <div class="card-flat" id="ai-explanation-box" style="margin-bottom:20px; background:var(--border-light); border:none; display:none; padding:16px;">
-                <h4 style="font-family:var(--font-head);font-size:0.9rem;font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:6px;color:var(--primary-mid);">
+            <div class="ai-explanation-box" id="ai-explanation-box">
+                <h4 class="ai-explanation-header">
                     <i class="icon-md" data-lucide="sparkles"></i> AI Workout Insights
                 </h4>
-                <p id="ai-explanation-text" style="font-size:0.85rem;line-height:1.45;color:var(--text-muted);margin:0;"></p>
+                <p id="ai-explanation-text" class="ai-explanation-text"></p>
             </div>
 
             <div class="workout-preview-stats">
@@ -140,18 +130,19 @@
             <div class="exercises-list" id="exercises-list"></div>
 
             <!-- Save Workout Template Action -->
-            <div class="card-flat" id="save-workout-box" style="margin-top:24px; background:var(--surface-alt); border:1px dashed var(--border); display:flex; flex-direction:column; gap:12px; padding:18px; border-radius:var(--radius-lg);">
-                <h4 style="font-family:var(--font-head);font-size:0.9rem;font-weight:700;margin:0;display:flex;align-items:center;gap:6px;"><i class="icon-md" data-lucide="save"></i> Save Workout Template</h4>
-                <p style="font-size:0.8rem;color:var(--text-muted);margin:0;">Add this workout session to your library templates to reload it directly from your Dashboard.</p>
-                <div style="display:flex;gap:10px;flex-wrap:wrap;">
-                    <input type="text" id="save-workout-name" class="form-control" placeholder="e.g. Knee Rehab Session" style="flex:1;min-width:180px;padding:6px 12px;font-size:0.85rem;">
+            <div class="save-template-box" id="save-workout-box">
+                <h4 class="save-template-header">
+                    <i class="icon-md" data-lucide="save"></i> Save Workout Template
+                </h4>
+                <p class="save-template-desc">Add this workout session to your library templates to reload it directly from your Dashboard.</p>
+                <div class="save-template-inputs">
+                    <input type="text" id="save-workout-name" class="form-control save-template-input" placeholder="e.g. Knee Rehab Session">
                     <button class="btn btn-sm btn-outline" onclick="saveWorkoutTemplate()">Save Template</button>
                 </div>
             </div>
 
-            <button class="btn btn-primary btn-full" onclick="startWorkout()" style="margin-top:20px;">▶ Start Workout</button>
+            <button class="btn btn-primary btn-full planner-preview-play-btn" onclick="startWorkout()">▶ Start Workout</button>
         </div>
-
         <!-- Placeholder when no workout generated yet -->
         <div id="preview-placeholder" class="card-flat">
             <p>Configure your workout on the left<br>and click <strong>Generate</strong> to see a preview</p>
@@ -256,7 +247,7 @@
         } else {
             aiBox.style.display = 'none';
         }
-        
+
         // Reinitialize Lucide icons in explanation box if any
         lucide.createIcons({ root: aiBox });
 
@@ -267,42 +258,42 @@
     function startWorkout() { window.location.href = '/session'; }
 
     function saveWorkoutTemplate() {
-         const stored = sessionStorage.getItem('currentWorkout');
-         if (!stored) {
-             if (window.showToast) showToast('No workout to save.', 'error');
-             return;
-         }
-         const workoutName = document.getElementById('save-workout-name').value.trim();
-         if (!workoutName) {
-             if (window.showToast) showToast('Please enter a name for the workout.', 'warning');
-             return;
-         }
-         
-         const workout = JSON.parse(stored);
-         
-         fetch('/api/workouts/save', {
-             method: 'POST',
-             headers: { 'Content-Type': 'application/json' },
-             body: JSON.stringify({
-                 workout_name: workoutName,
-                 workout_description: workout.explanation || 'Custom generated workout.',
-                 exercises: workout.exercises,
-                 total_duration: workout.total_duration,
-                 difficulty: workout.difficulty
-             })
-         })
-         .then(r => r.json())
-         .then(data => {
-             if (data.success) {
-                 if (window.showToast) showToast('Workout template saved successfully!', 'success');
-                 document.getElementById('save-workout-name').value = '';
-             } else {
-                 if (window.showToast) showToast('Error: ' + data.error, 'error');
-             }
-         })
-         .catch(() => {
-             if (window.showToast) showToast('Network error saving workout template.', 'error');
-         });
-     }
+        const stored = sessionStorage.getItem('currentWorkout');
+        if (!stored) {
+            if (window.showToast) showToast('No workout to save.', 'error');
+            return;
+        }
+        const workoutName = document.getElementById('save-workout-name').value.trim();
+        if (!workoutName) {
+            if (window.showToast) showToast('Please enter a name for the workout.', 'warning');
+            return;
+        }
+
+        const workout = JSON.parse(stored);
+
+        fetch('/api/workouts/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                workout_name: workoutName,
+                workout_description: workout.explanation || 'Custom generated workout.',
+                exercises: workout.exercises,
+                total_duration: workout.total_duration,
+                difficulty: workout.difficulty
+            })
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    if (window.showToast) showToast('Workout template saved successfully!', 'success');
+                    document.getElementById('save-workout-name').value = '';
+                } else {
+                    if (window.showToast) showToast('Error: ' + data.error, 'error');
+                }
+            })
+            .catch(() => {
+                if (window.showToast) showToast('Network error saving workout template.', 'error');
+            });
+    }
 </script>
 {% endblock %}

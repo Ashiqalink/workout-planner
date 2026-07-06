@@ -6,7 +6,7 @@
 <div class="library-page">
 
     <!-- Header -->
-    <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:15px;margin-bottom:24px;">
+    <div class="library-header-row">
         <div>
             <div class="breadcrumb">
                 <a href="{{ url_for('index') }}">Home</a> › Library
@@ -14,16 +14,16 @@
             <h1>📚 Exercise Library</h1>
             <p>Browse all exercises across 5 training domains</p>
         </div>
-        <button class="btn btn-primary" onclick="toggleAddExerciseForm()" style="display:flex;align-items:center;gap:8px;">
+        <button class="btn btn-primary" onclick="toggleAddExerciseForm()">
             <i class="icon-xl" data-lucide="plus"></i> Add Custom Exercise
         </button>
     </div>
 
     <!-- Custom Exercise Form (Hidden by default) -->
-    <div class="card hidden" id="add-exercise-panel" style="margin-bottom:24px;">
+    <div class="card hidden exercise-form-panel" id="add-exercise-panel">
         <h3 style="font-family:var(--font-head);margin-bottom:16px;">Add Custom Exercise</h3>
         <form id="add-exercise-form">
-            <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:15px;margin-bottom:15px;">
+            <div class="exercise-form-grid-4">
                 <div class="form-group">
                     <label for="ex-name">Exercise Name</label>
                     <input type="text" id="ex-name" class="form-control" placeholder="e.g. Diamond Push-ups" required>
@@ -51,7 +51,7 @@
                     <input type="number" id="ex-duration" class="form-control" step="0.1" min="0.1" value="1.0" required>
                 </div>
             </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;margin-bottom:15px;">
+            <div class="exercise-form-grid-2">
                 <div class="form-group">
                     <label for="ex-muscles">Target Muscles (optional)</label>
                     <input type="text" id="ex-muscles" class="form-control" placeholder="e.g. Chest, triceps">
@@ -61,11 +61,11 @@
                     <input type="text" id="ex-desc" class="form-control" placeholder="e.g. Targets inner chest and arm strength">
                 </div>
             </div>
-            <div class="form-group" style="margin-bottom:15px;">
+            <div class="form-group">
                 <label for="ex-instructions">Instructions (optional)</label>
                 <textarea id="ex-instructions" class="form-control" rows="3" placeholder="Step 1... Step 2..."></textarea>
             </div>
-            <div style="display:flex;justify-content:flex-end;gap:10px;">
+            <div class="exercise-form-actions">
                 <button type="button" class="btn btn-ghost" onclick="toggleAddExerciseForm()">Cancel</button>
                 <button type="submit" class="btn btn-primary">Save Exercise</button>
             </div>
