@@ -28,27 +28,22 @@
                         <label class="domain-card" id="dc-strength">
                             <input type="checkbox" name="domains" value="Strength">
                             <div class="domain-card-label">Strength</div>
-                            <div class="domain-tick hidden"><i class="icon-md" data-lucide="check" style="margin:auto;"></i></div>
                         </label>
                         <label class="domain-card" id="dc-speed">
                             <input type="checkbox" name="domains" value="Speed & Mobility">
                             <div class="domain-card-label">Speed</div>
-                            <div class="domain-tick hidden"><i class="icon-md" data-lucide="check" style="margin:auto;"></i></div>
                         </label>
                         <label class="domain-card" id="dc-endurance">
                             <input type="checkbox" name="domains" value="Endurance">
                             <div class="domain-card-label">Endurance</div>
-                            <div class="domain-tick hidden"><i class="icon-md" data-lucide="check" style="margin:auto;"></i></div>
                         </label>
                         <label class="domain-card" id="dc-agility">
                             <input type="checkbox" name="domains" value="Agility">
                             <div class="domain-card-label">Agility</div>
-                            <div class="domain-tick hidden"><i class="icon-md" data-lucide="check" style="margin:auto;"></i></div>
                         </label>
                         <label class="domain-card" id="dc-cognitive">
                             <input type="checkbox" name="domains" value="Cognitive">
                             <div class="domain-card-label">Cognitive</div>
-                            <div class="domain-tick hidden">✓</div>
                         </label>
                     </div>
                 </div>
@@ -92,9 +87,10 @@
                     </select>
                 </div>
 
-                    <button type="button" class="btn btn-primary btn-lg btn-full" id="generate-btn" style="display:flex;align-items:center;justify-content:center;gap:8px;">
-                        <i class="icon-lg icon-fill" data-lucide="zap" ></i> Generate Workout
-                    </button>
+                <button type="submit" class="btn btn-primary btn-lg btn-full" id="generate-btn"
+                    style="display:flex;align-items:center;justify-content:center;gap:8px;">
+                    <i class="icon-lg icon-fill" data-lucide="zap"></i> Generate Workout
+                </button>
             </form>
         </div>
 
@@ -102,11 +98,14 @@
         <div id="workout-preview" class="workout-preview-panel hidden">
             <div class="section-heading" style="margin-bottom:20px;">
                 <h2 style="font-family:var(--font-head);font-size:1.15rem;font-weight:700;">Your Workout</h2>
-                <button class="btn btn-sm btn-ghost" id="regen-btn" style="display:flex;align-items:center;gap:6px;"><i class="icon-md" data-lucide="refresh-cw" ></i> Regenerate</button>
+                <button class="btn btn-sm btn-ghost" id="regen-btn" onclick="regenerateWorkout()" style="display:flex;align-items:center;gap:6px;"><i
+                        class="icon-md" data-lucide="refresh-cw"></i> Regenerate</button>
             </div>
-            
+
             <div style="display:flex;gap:10px;margin-bottom:20px;">
-                <button class="btn btn-sm btn-primary" id="start-btn" style="display:flex;align-items:center;gap:6px;"><i class="icon-md icon-fill" data-lucide="play" ></i> Start Workout</button>
+                <button class="btn btn-sm btn-primary" id="start-btn" onclick="startWorkout()"
+                    style="display:flex;align-items:center;gap:6px;"><i class="icon-md icon-fill"
+                        data-lucide="play"></i> Start Workout</button>
             </div>
 
             <div class="workout-preview-stats">
@@ -130,9 +129,7 @@
         </div>
 
         <!-- Placeholder when no workout generated yet -->
-        <div id="preview-placeholder" class="card-flat"
-            style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:260px;text-align:center;color:var(--text-muted);gap:12px;">
-            <div style="font-size:2.5rem;">📋</div>
+        <div id="preview-placeholder" class="card-flat">
             <p>Configure your workout on the left<br>and click <strong>Generate</strong> to see a preview</p>
         </div>
 
@@ -144,10 +141,8 @@
     // Domain card toggle
     document.querySelectorAll('.domain-card').forEach(card => {
         const cb = card.querySelector('input[type="checkbox"]');
-        const tick = card.querySelector('.domain-tick');
         cb.addEventListener('change', function () {
             card.classList.toggle('selected', this.checked);
-            if (tick) tick.classList.toggle('hidden', !this.checked);
         });
         card.addEventListener('click', function (e) {
             if (e.target === cb) return;
@@ -175,7 +170,8 @@
             return;
         }
 
-        btn.textContent = 'Generating…';
+        const textNode = Array.from(btn.childNodes).find(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim());
+        if (textNode) textNode.textContent = ' Generating…';
         btn.disabled = true;
 
         fetch('/api/generate-workout', {
@@ -192,7 +188,11 @@
                 }
             })
             .catch(() => { if (window.showToast) showToast('Network error. Try again.', 'error'); })
-            .finally(() => { btn.textContent = '⚡ Generate Workout'; btn.disabled = false; });
+            .finally(() => {
+                const tNode = Array.from(btn.childNodes).find(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim());
+                if (tNode) tNode.textContent = ' Generate Workout';
+                btn.disabled = false;
+            });
     }
 
     function displayWorkout(workout) {
@@ -201,7 +201,7 @@
         preview.classList.remove('hidden');
 
         document.getElementById('total-exercises').textContent = workout.exercises.length;
-        document.getElementById('total-duration').textContent = workout.total_duration;
+        document.getElementById('total-duration').textContent = parseFloat(workout.total_duration).toFixed(1);
         const diffMap = { beginner: '🟢', intermediate: '🟡', advanced: '🔴' };
         const dKey = (workout.difficulty || '').toLowerCase();
         document.getElementById('workout-difficulty').textContent = (diffMap[dKey] || '') + ' ' + (workout.difficulty || '—');

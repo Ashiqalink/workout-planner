@@ -293,6 +293,98 @@ def api_exercises():
     
     return jsonify({'exercises': cleaned_exercises})
 
+import urllib.request
+import urllib.error
+import re
+
+LM_STUDIO_API_URL = os.environ.get('LM_STUDIO_API_URL', 'http://localhost:1234/v1')
+
+def generate_workout_via_llm(domains, duration, difficulty, focus, candidates):
+    url = f"{LM_STUDIO_API_URL}/chat/completions"
+    
+    system_content = "You are a professional fitness coach. You must design a cohesive workout session using the provided candidate exercises. Respond ONLY with a raw JSON object containing the schema requested. No markdown format."
+    
+    user_content = f"""Design a workout session using the candidate exercises below.
+Target Duration: {duration} minutes
+Difficulty: {difficulty}
+Focus Area: {focus if focus else 'None'}
+Selected Domains: {', '.join(domains)}
+
+Candidate Exercises:
+{json.dumps(candidates, indent=2)}
+
+Rules:
+1. Select exercises from the Candidate Exercises that match the target domains.
+2. The total sum of the selected exercise durations MUST be close to {duration} minutes.
+3. You can adjust the duration (in minutes) of selected exercises to fit the target duration.
+4. If there are not enough candidates, you may generate highly related new exercises that fit the target domains, using the same JSON format.
+5. Respond strictly with JSON. Do not wrap in ```json or ``` blocks.
+
+Expected JSON output format:
+{{
+  "exercises": [
+    {{
+      "name": "Exercise Name",
+      "category": "Category Name",
+      "duration": 1.0,
+      "difficulty": "beginner",
+      "description": "Short description of the exercise.",
+      "target_muscles": "Target muscles."
+    }}
+  ],
+  "total_duration": 15
+}}"""
+
+    payload = {
+        "model": "qwen3.5-9b",
+        "messages": [
+            {"role": "system", "content": system_content},
+            {"role": "user", "content": user_content}
+        ],
+        "temperature": 0.3,
+        "enable_thinking": False
+    }
+    
+    try:
+        req = urllib.request.Request(url, method="POST")
+        req.add_header("Content-Type", "application/json")
+        
+        data_bytes = json.dumps(payload).encode('utf-8')
+        
+        # 10 second timeout
+        with urllib.request.urlopen(req, data_bytes, timeout=10) as response:
+            res_body = response.read().decode('utf-8')
+            res_json = json.loads(res_body)
+            
+            choices = res_json.get("choices", [])
+            if not choices:
+                return None
+                
+            content = choices[0].get("message", {}).get("content", "").strip()
+            
+            # Clean up potential markdown blocks
+            if content.startswith("```"):
+                content = re.sub(r'^```(?:json)?\s*', '', content)
+                content = re.sub(r'\s*```$', '', content)
+                content = content.strip()
+                
+            workout_data = json.loads(content)
+            
+            if "exercises" in workout_data and isinstance(workout_data["exercises"], list):
+                total_time = 0
+                for ex in workout_data["exercises"]:
+                    ex["duration"] = float(ex.get("duration", 0.5))
+                    total_time += ex["duration"]
+                
+                workout_data["total_duration"] = round(total_time, 1)
+                workout_data["success"] = True
+                return workout_data
+                
+    except Exception as e:
+        print(f"LM Studio API Call Failed: {e}")
+        
+    return None
+
 @app.route('/api/generate-workout', methods=['POST'])
 def api_generate_workout():
     """Generate a custom workout based on user preferences."""
@@ -324,7 +416,35 @@ def api_generate_workout():
             'Cognitive': 'Cognition'
         }
 
-        # Filter exercises based on criteria
+        # First, prepare candidates for LLM
+        llm_categories = [domain_to_category[d] for d in domains if d in domain_to_category]
+        candidates = []
+        for ex in training_data.get('exercises', []):
+            if ex.get('category') in llm_categories:
+                # Clean up NaNs
+                cleaned_cand = {}
+                for key, val in ex.items():
+                    if pd.isna(val):
+                        cleaned_cand[key] = None
+                    else:
+                        cleaned_cand[key] = val
+                candidates.append({
+                    'name': cleaned_cand.get('name'),
+                    'category': cleaned_cand.get('category'),
+                    'duration': cleaned_cand.get('duration', 0.5),
+                    'difficulty': cleaned_cand.get('difficulty', 'beginner'),
+                    'description': cleaned_cand.get('description', ''),
+                    'target_muscles': cleaned_cand.get('target_muscles', '')
+                })
+
+        # Try local LLM generation
+        focus = data.get('focus', '')
+        llm_workout = generate_workout_via_llm(domains, duration, difficulty, focus, candidates)
+        if llm_workout:
+            llm_workout['workout_id'] = f"workout_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+            return jsonify(llm_workout)
+
+        # FALLBACK: Filter exercises based on criteria (original rule-based logic)
         filtered_exercises = []
         for exercise in training_data['exercises']:
             # Check if exercise category matches any selected domain
@@ -393,7 +513,7 @@ def api_generate_workout():
         return jsonify({
             'success': True,
             'exercises': cleaned_exercises,
-            'total_duration': total_time,
+            'total_duration': round(total_time, 1),
             'difficulty': difficulty,
             'workout_id': f"workout_{datetime.now().strftime('%Y%m%d%H%M%S')}"
         })

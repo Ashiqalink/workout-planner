@@ -186,7 +186,7 @@
         }
         currentWorkout = JSON.parse(stored);
         const n = currentWorkout.exercises.length;
-        const d = currentWorkout.total_duration;
+        const d = parseFloat(currentWorkout.total_duration).toFixed(1);
 
         document.getElementById('session-title').innerHTML = '<i class="icon-xl icon-inline" data-lucide="activity" style="margin-right:8px;"></i> ' + (currentWorkout.sessionType || 'Custom Workout');
         document.getElementById('welcome-title').textContent = 'Ready to Train!';

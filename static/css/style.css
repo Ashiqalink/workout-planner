@@ -236,15 +236,12 @@ ul { list-style: none; }
   border-radius: var(--radius);
   box-shadow: var(--shadow-md);
   background: white;
-  border-left: 4px solid var(--primary);
+  
   animation: toastIn 0.35s cubic-bezier(0.34,1.56,0.64,1) both;
   font-size: 0.9rem;
   font-weight: 500;
 }
-.toast.toast-success { border-color: var(--success); }
-.toast.toast-error   { border-color: var(--danger); }
-.toast.toast-warning { border-color: var(--warning); }
-.toast.toast-info    { border-color: var(--info); }
+
 .toast-icon { font-size: 1.1rem; flex-shrink: 0; margin-top: 1px; }
 .toast-msg  { flex: 1; }
 .toast-close {
@@ -314,10 +311,13 @@ ul { list-style: none; }
   padding: 20px;
 }
 .card-teal {
-  background: var(--primary-light);
-  border: 1px solid rgba(0,191,165,0.2);
+  background: var(--surface);
   border-radius: var(--radius-lg);
+  border: 1px solid var(--border-light);
+  box-shadow: var(--shadow);
   padding: 28px;
+  transition: var(--transition);
+  animation: slideUp 0.4s ease both;
 }
 
 /* =========================================================
@@ -1028,28 +1028,17 @@ ul { list-style: none; }
   user-select: none;
 }
 .domain-card:hover {
-  border-color: var(--primary);
+  
   background: var(--primary-light);
 }
 .domain-card.selected {
-  border-color: var(--primary);
-  background: var(--primary-light);
+  background: var(--primary);
+  color: white;
 }
 .domain-card input[type="checkbox"] { display: none; }
 .domain-card-icon { font-size: 1.8rem; margin-bottom: 6px; }
 .domain-card-label { font-size: 0.82rem; font-weight: 600; color: var(--text-muted); }
-.domain-card.selected .domain-card-label { color: var(--primary-dark); }
-.domain-card.selected .domain-tick {
-  width: 20px; height: 20px;
-  background: var(--primary);
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin: 6px auto 0;
-  color: white;
-  font-size: 0.7rem;
-}
+.domain-card.selected .domain-card-label { color: white; }
 
 .duration-display {
   text-align: center;
@@ -1096,7 +1085,7 @@ ul { list-style: none; }
   background: var(--surface-alt);
   border-radius: var(--radius);
   transition: var(--transition-fast);
-  border-left: 3px solid var(--primary);
+  
 }
 .exercise-item:hover { background: var(--primary-light); }
 .exercise-number {
@@ -1128,7 +1117,7 @@ ul { list-style: none; }
 .exercise-status.completed { background: var(--success-light); color: var(--success); }
 .exercise-status.active    { background: var(--primary-light); color: var(--primary-dark); }
 .exercise-item.completed   { opacity: 0.6; }
-.exercise-item.active      { background: var(--primary-light); border-left-color: var(--primary-dark); }
+.exercise-item.active      { background: var(--primary-light);  }
 
 /* Skeleton loader */
 .skeleton {
