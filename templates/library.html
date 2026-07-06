@@ -94,7 +94,7 @@
             .catch(() => {
                 const container = document.getElementById('exercises-container');
                 container.innerHTML =
-                    '<div class="no-results error-message"><div class="no-results-icon"><i data-lucide="alert-triangle" style="width:32px;height:32px;color:var(--danger);"></i></div><p>Could not load exercises. Please refresh.</p></div>';
+                    '<div class="no-results error-message"><div class="no-results-icon"><i class="icon-4xl icon-danger" data-lucide="alert-triangle" ></i></div><p>Could not load exercises. Please refresh.</p></div>';
                 lucide.createIcons({ root: container });
             });
     }
@@ -137,7 +137,7 @@
     function displayExercises(exercises) {
         const container = document.getElementById('exercises-container');
         if (exercises.length === 0) {
-            container.innerHTML = '<div class="no-results" style="grid-column:1/-1"><div class="no-results-icon"><i data-lucide="search" style="width:32px;height:32px;color:var(--text-muted);"></i></div><p>No exercises match your filters.</p></div>';
+            container.innerHTML = '<div class="no-results" style="grid-column:1/-1"><div class="no-results-icon"><i class="icon-4xl icon-muted" data-lucide="search" ></i></div><p>No exercises match your filters.</p></div>';
             lucide.createIcons({ root: container });
             return;
         }

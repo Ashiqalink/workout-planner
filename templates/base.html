@@ -27,7 +27,7 @@
     <nav class="navbar">
         <div class="nav-container">
             <div class="nav-brand">
-                <a href="{{ url_for('index') }}" style="display:flex;align-items:center;gap:6px;"><i data-lucide="zap" style="width:20px;height:20px;"></i> FitTrack</a>
+                <a href="{{ url_for('index') }}" style="display:flex;align-items:center;gap:6px;"><i class="icon-xl" data-lucide="zap" ></i> FitTrack</a>
             </div>
             <ul class="nav-menu">
                 <li><a href="{{ url_for('index') }}" {% if request.endpoint=='index' %}class="active" {% endif
@@ -81,11 +81,11 @@
     <script>
         (function () {
             const icons = { 
-                success: '<i data-lucide="check-circle-2" style="color:var(--success);"></i>', 
-                error: '<i data-lucide="x-circle" style="color:var(--danger);"></i>', 
-                warning: '<i data-lucide="alert-triangle" style="color:var(--warning);"></i>', 
-                info: '<i data-lucide="info" style="color:var(--primary);"></i>', 
-                message: '<i data-lucide="message-square" style="color:var(--text);"></i>' 
+                success: '<i class="icon-success" data-lucide="check-circle-2" ></i>', 
+                error: '<i class="icon-danger" data-lucide="x-circle" ></i>', 
+                warning: '<i class="icon-warning" data-lucide="alert-triangle" ></i>', 
+                info: '<i class="icon-primary" data-lucide="info" ></i>', 
+                message: '<i class="icon-text" data-lucide="message-square" ></i>' 
             };
             function showToast(msg, cat) {
                 cat = cat || 'message';
@@ -95,7 +95,7 @@
                 toast.innerHTML = `
                 <span class="toast-icon">${icons[cat] || icons.message}</span>
                 <span class="toast-msg">${msg}</span>
-                <button class="toast-close" aria-label="Close"><i data-lucide="x" style="width:16px;height:16px;"></i></button>
+                <button class="toast-close" aria-label="Close"><i class="icon-md" data-lucide="x" ></i></button>
                 `;
                 container.appendChild(toast);
                 lucide.createIcons({ root: toast });

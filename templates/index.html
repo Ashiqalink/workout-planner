@@ -24,22 +24,22 @@
     <!-- KPI Stats -->
     <div class="kpi-grid">
         <div class="kpi-card slide-up" style="animation-delay: 0.1s;">
-            <i data-lucide="dumbbell" style="width:28px;height:28px;margin-bottom:10px;color:var(--primary);"></i>
+            <i class="icon-3xl icon-primary" data-lucide="dumbbell" style="margin-bottom:10px;"></i>
             <div class="kpi-value">{{ total_exercises or 0 }}</div>
             <div class="kpi-label">Exercises Completed</div>
         </div>
         <div class="kpi-card slide-up" style="animation-delay: 0.15s;">
-            <i data-lucide="timer" style="width:28px;height:28px;margin-bottom:10px;color:var(--primary);"></i>
+            <i class="icon-3xl icon-primary" data-lucide="timer" style="margin-bottom:10px;"></i>
             <div class="kpi-value">{{ avg_session_length or 0 }}<span style="font-size:1rem;">m</span></div>
             <div class="kpi-label">Avg Session Time</div>
         </div>
         <div class="kpi-card slide-up" style="animation-delay: 0.2s;">
-            <i data-lucide="flame" style="width:28px;height:28px;margin-bottom:10px;color:var(--danger);"></i>
+            <i class="icon-3xl icon-danger" data-lucide="flame" style="margin-bottom:10px;"></i>
             <div class="kpi-value">{{ current_streak or 0 }}</div>
             <div class="kpi-label">Day Streak</div>
         </div>
         <div class="kpi-card slide-up" style="animation-delay: 0.25s;">
-            <i data-lucide="trending-up" style="width:28px;height:28px;margin-bottom:10px;color:var(--success);"></i>
+            <i class="icon-3xl icon-success" data-lucide="trending-up" style="margin-bottom:10px;"></i>
             <div class="kpi-value">{{ weekly_sessions or 0 }}</div>
             <div class="kpi-label">Sessions this Week</div>
         </div>
@@ -60,16 +60,16 @@
             </h3>
             <p style="color:var(--text-muted);margin-bottom:14px;">{{ today_session.description }}</p>
             <div class="session-meta-row" style="gap:8px;">
-                <span class="session-meta-chip"><i data-lucide="clock" style="width:14px;height:14px;"></i> {{ today_session.duration }} min</span>
-                <span class="session-meta-chip"><i data-lucide="activity" style="width:14px;height:14px;"></i> {{ today_session.difficulty }}</span>
+                <span class="session-meta-chip"><i class="icon-sm" data-lucide="clock" ></i> {{ today_session.duration }} min</span>
+                <span class="session-meta-chip"><i class="icon-sm" data-lucide="activity" ></i> {{ today_session.difficulty }}</span>
                 {% if today_session.focus %}
-                <span class="session-meta-chip"><i data-lucide="target" style="width:14px;height:14px;"></i> {{ today_session.focus }}</span>
+                <span class="session-meta-chip"><i class="icon-sm" data-lucide="target" ></i> {{ today_session.focus }}</span>
                 {% endif %}
             </div>
             <button id="start-today-btn"
                 onclick="startTodaySession('{{ today_session.name }}', '{{ today_session.duration }}', '{{ today_session.difficulty }}', '{{ today_session.focus }}')"
                 class="btn btn-primary" style="display:flex;align-items:center;gap:8px;justify-content:center;">
-                <i data-lucide="play" style="width:18px;height:18px;fill:currentColor;"></i> Start Session
+                <i class="icon-lg icon-fill" data-lucide="play" ></i> Start Session
             </button>
             {% else %}
             <p style="color:var(--text-muted);margin-bottom:16px;">No session planned for today. Create a custom
@@ -85,19 +85,19 @@
             </div>
             <div class="quick-actions-grid">
                 <a href="{{ url_for('planner') }}" class="quick-action-btn">
-                    <i data-lucide="calendar" style="width:20px;height:20px;margin-bottom:8px;color:var(--primary);"></i>
+                    <i class="icon-xl icon-primary" data-lucide="calendar" style="margin-bottom:8px;"></i>
                     Plan Session
                 </a>
                 <a href="{{ url_for('planner') }}" class="quick-action-btn">
-                    <i data-lucide="plus" style="width:20px;height:20px;margin-bottom:8px;color:var(--primary);"></i>
+                    <i class="icon-xl icon-primary" data-lucide="plus" style="margin-bottom:8px;"></i>
                     Add Custom
                 </a>
                 <a href="{{ url_for('library') }}" class="quick-action-btn">
-                    <i data-lucide="library" style="width:20px;height:20px;margin-bottom:8px;color:var(--primary);"></i>
+                    <i class="icon-xl icon-primary" data-lucide="library" style="margin-bottom:8px;"></i>
                     Library
                 </a>
                 <a href="{{ url_for('progress') }}" class="quick-action-btn">
-                    <i data-lucide="trending-up" style="width:20px;height:20px;margin-bottom:8px;color:var(--primary);"></i>
+                    <i class="icon-xl icon-primary" data-lucide="trending-up" style="margin-bottom:8px;"></i>
                     View Progress
                 </a>
             </div>
@@ -129,7 +129,7 @@
             </div>
             {% else %}
             <div class="no-sessions" style="text-align:center;padding:2rem;">
-                <i data-lucide="activity" style="width:48px;height:48px;color:var(--text-muted);margin:0 auto 12px auto;display:block;"></i>
+                <i class="icon-5xl icon-muted" data-lucide="activity" style="margin:0 auto 12px auto;display:block;"></i>
                 <p>No sessions yet. Start your first workout!</p>
             </div>
             {% endif %}
