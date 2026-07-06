@@ -16,25 +16,25 @@
             <h3>Sessions</h3>
             <div class="stat-number">{{ progress_data.total_sessions or 0 }}</div>
             <div class="stat-sub">completed</div>
-            <div class="stat-icon">🏋️</div>
+            <div class="stat-icon"><i data-lucide="dumbbell" style="color:var(--primary);width:32px;height:32px;"></i></div>
         </div>
         <div class="stat-card">
             <h3>Minutes</h3>
             <div class="stat-number">{{ progress_data.total_minutes or 0 }}</div>
             <div class="stat-sub">total training</div>
-            <div class="stat-icon">⏱️</div>
+            <div class="stat-icon"><i data-lucide="timer" style="color:var(--primary);width:32px;height:32px;"></i></div>
         </div>
         <div class="stat-card">
             <h3>Streak</h3>
             <div class="stat-number">{{ progress_data.current_streak or 0 }}</div>
-            <div class="stat-sub">day streak 🔥</div>
-            <div class="stat-icon">🔥</div>
+            <div class="stat-sub">day streak</div>
+            <div class="stat-icon"><i data-lucide="flame" style="color:var(--danger);width:32px;height:32px;"></i></div>
         </div>
         <div class="stat-card">
             <h3>Avg Session</h3>
             <div class="stat-number">{{ progress_data.avg_session_length or 0 }}</div>
             <div class="stat-sub">minutes</div>
-            <div class="stat-icon">📊</div>
+            <div class="stat-icon"><i data-lucide="bar-chart-2" style="color:var(--primary);width:32px;height:32px;"></i></div>
         </div>
     </div>
 
@@ -60,16 +60,19 @@
     </div>
     <div class="domain-cards-grid">
         {% set domains = [
-        ('strength', '💪', 'Strength'),
-        ('speed_mobility','⚡', 'Speed & Mobility'),
-        ('endurance', '🏃', 'Endurance'),
-        ('agility', '🤸', 'Agility'),
-        ('cognitive', '🧠', 'Cognitive')
+        ('strength', 'dumbbell', 'Strength'),
+        ('speed_mobility','zap', 'Speed & Mobility'),
+        ('endurance', 'activity', 'Endurance'),
+        ('agility', 'move', 'Agility'),
+        ('cognitive', 'brain', 'Cognitive')
         ] %}
         {% for key, icon, label in domains %}
         {% set d = progress_data[key] if progress_data[key] is defined else {} %}
-        <div class="domain-progress-card">
-            <h3>{{ icon }} {{ label }}</h3>
+        <div class="domain-card slide-up">
+            <div class="domain-header">
+                <span class="domain-icon"><i data-lucide="{{ icon }}" style="width:24px;height:24px;color:var(--primary);"></i></span>
+                <h3>{{ label }}</h3>
+            </div>
             <div class="domain-stats">
                 <span class="domain-stat">Sessions: <span>{{ d.sessions or 0 }}</span></span>
                 <span class="domain-stat">Minutes: <span>{{ d.minutes or 0 }}</span></span>
@@ -105,7 +108,7 @@
     </div>
     {% else %}
     <div class="no-sessions">
-        <div style="font-size:2rem;margin-bottom:10px;">🏃</div>
+        <i data-lucide="activity" style="width:48px;height:48px;color:var(--text-muted);margin-bottom:10px;"></i>
         <p>No sessions recorded yet. <a href="{{ url_for('training_session') }}">Start your first workout →</a></p>
     </div>
     {% endif %}

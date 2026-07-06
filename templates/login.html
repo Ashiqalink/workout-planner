@@ -7,7 +7,7 @@
     <div class="auth-container">
         <div class="auth-card">
             <div class="auth-header">
-                <h1> FitTrack</h1>
+                <h1 style="display:flex;align-items:center;justify-content:center;gap:8px;"><i data-lucide="zap" style="width:32px;height:32px;color:var(--primary);"></i> FitTrack</h1>
                 <p>Welcome back! Sign in to continue your training journey.</p>
             </div>
 
@@ -21,10 +21,10 @@
                 <div class="form-group">
                     <label for="password">Password</label>
                     <div class="input-group">
-                        <input type="password" id="password" name="password" class="form-control"
-                            placeholder="Enter your password" required autocomplete="current-password">
+                        <input type="password" id="password" name="password" class="form-control" placeholder="••••••••"
+                            required autocomplete="current-password">
                         <button type="button" class="input-toggle-btn" onclick="togglePwd('password', this)"
-                            aria-label="Show password">👁️</button>
+                            aria-label="Show password"><i data-lucide="eye" style="width:18px;height:18px;"></i></button>
                     </div>
                 </div>
 
@@ -46,11 +46,12 @@
         const inp = document.getElementById(inputId);
         if (inp.type === 'password') {
             inp.type = 'text';
-            btn.textContent = '🙈';
+            btn.innerHTML = '<i data-lucide="eye-off" style="width:18px;height:18px;"></i>';
         } else {
             inp.type = 'password';
-            btn.textContent = '👁️';
+            btn.innerHTML = '<i data-lucide="eye" style="width:18px;height:18px;"></i>';
         }
+        lucide.createIcons({ root: btn });
     }
 
     document.getElementById('login-form').addEventListener('submit', function () {

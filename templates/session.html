@@ -6,16 +6,13 @@
 <div class="session-page">
 
     <!-- Header bar -->
-    <div class="session-header-bar" id="header-bar">
-        <div class="session-header-title" id="session-title">🏃 Training Session</div>
+    <div class="session-header" id="header-bar">
+        <div class="session-header-title" id="session-title"><i data-lucide="activity" style="width:20px;height:20px;"></i> Training Session</div>
         <div class="session-header-timer" id="session-timer">00:00</div>
         <div class="session-header-actions" id="header-actions">
-            <button class="btn btn-sm btn-secondary" id="pause-btn" onclick="pauseSession()" style="display:none;">⏸
-                Pause</button>
-            <button class="btn btn-sm btn-primary" id="resume-btn" onclick="resumeSession()" style="display:none;">▶
-                Resume</button>
-            <button class="btn btn-sm btn-danger" id="stop-btn" onclick="showStopModal()" style="display:none;">■
-                Stop</button>
+            <button class="btn btn-sm btn-secondary" id="pause-btn" onclick="pauseSession()" style="display:none;align-items:center;gap:6px;"><i data-lucide="pause" style="width:16px;height:16px;fill:currentColor;"></i> Pause</button>
+            <button class="btn btn-sm btn-primary" id="resume-btn" onclick="resumeSession()" style="display:none;align-items:center;gap:6px;"><i data-lucide="play" style="width:16px;height:16px;fill:currentColor;"></i> Resume</button>
+            <button class="btn btn-sm btn-danger" id="stop-btn" onclick="showStopModal()" style="display:none;align-items:center;gap:6px;"><i data-lucide="square" style="width:16px;height:16px;fill:currentColor;"></i> Stop</button>
         </div>
     </div>
 
@@ -35,12 +32,12 @@
             <!-- Welcome screen -->
             <div class="timer-card" id="welcome-screen">
                 <div class="welcome-screen">
-                    <div style="font-size:2.5rem;margin-bottom:16px;">🏋️</div>
+                    <i data-lucide="dumbbell" style="width:48px;height:48px;margin-bottom:16px;color:var(--primary);"></i>
                     <h2 id="welcome-title">Loading workout…</h2>
                     <p id="welcome-sub" style="color:var(--text-muted);margin-bottom:20px;"></p>
                     <div class="workout-summary-chips" id="workout-chips"></div>
                     <button class="btn btn-primary btn-lg" onclick="startSession()" id="start-btn"
-                        style="display:none;">▶ Start Workout</button>
+                        style="display:none;align-items:center;gap:8px;"><i data-lucide="play" style="width:20px;height:20px;fill:currentColor;"></i> Start Workout</button>
                     <div id="no-workout-actions" style="display:none;">
                         <a href="/planner" class="btn btn-primary">Create Workout</a>
                         <a href="/" class="btn btn-secondary" style="margin-left:8px;">Dashboard</a>
@@ -67,7 +64,7 @@
                     </div>
                 </div>
                 <div class="timer-controls">
-                    <button class="btn btn-secondary" onclick="skipCurrentExercise()">⏭ Skip</button>
+                    <button class="btn btn-secondary" onclick="skipCurrentExercise()" style="display:flex;align-items:center;gap:6px;"><i data-lucide="skip-forward" style="width:16px;height:16px;"></i> Skip</button>
                 </div>
                 <div style="margin-top:12px;" id="ex-instructions"></div>
             </div>
@@ -75,7 +72,9 @@
             <!-- Rest screen (hidden) -->
             <div class="timer-card hidden" id="rest-screen">
                 <div class="rest-screen">
-                    <h2>😮‍💨 Rest</h2>
+                    <h2 style="font-family:var(--font-head);font-size:2rem;margin-bottom:8px;color:var(--text);display:flex;align-items:center;justify-content:center;gap:10px;">
+                        <i data-lucide="coffee" style="width:32px;height:32px;"></i> Rest
+                    </h2>
                     <p id="next-exercise-label" style="color:var(--text-muted);margin-bottom:8px;"></p>
                     <div class="timer-ring-wrap">
                         <svg class="timer-ring-svg" viewBox="0 0 180 180">
@@ -88,13 +87,15 @@
                             <div class="timer-label">rest</div>
                         </div>
                     </div>
-                    <button class="btn btn-outline" onclick="skipRest()">Skip Rest →</button>
+                    <div class="rest-actions">
+                        <button class="btn btn-outline" onclick="skipRest()" style="display:flex;align-items:center;gap:6px;"><i data-lucide="skip-forward" style="width:16px;height:16px;"></i> Skip Rest</button>
+                    </div>
                 </div>
             </div>
 
             <!-- Completion screen (hidden) -->
             <div class="session-complete-card hidden" id="complete-screen">
-                <div class="completion-trophy">🏆</div>
+                <i data-lucide="award" style="width:64px;height:64px;margin-bottom:10px;color:var(--primary);"></i>
                 <div class="completion-title">Session Complete!</div>
                 <p class="completion-sub" id="complete-sub">Great job. Keep it up!</p>
                 <div class="completion-stats">
@@ -112,7 +113,9 @@
                     </div>
                 </div>
                 <div class="completion-actions">
-                    <button class="btn btn-primary" id="save-btn" onclick="saveSessionData()">💾 Save Progress</button>
+                    <button class="btn btn-primary btn-lg" id="save-btn" onclick="saveSessionData()" style="display:flex;align-items:center;gap:8px;">
+                        <i data-lucide="save" style="width:20px;height:20px;"></i> Save Progress
+                    </button>
                     <a href="/" class="btn btn-secondary">Dashboard</a>
                     <a href="/progress" class="btn btn-outline">View Progress →</a>
                 </div>
@@ -185,16 +188,17 @@
         const n = currentWorkout.exercises.length;
         const d = currentWorkout.total_duration;
 
-        document.getElementById('session-title').textContent = '🏋️ ' + (currentWorkout.sessionType || 'Custom Workout');
+        document.getElementById('session-title').innerHTML = '<i data-lucide="activity" style="width:20px;height:20px;display:inline-block;vertical-align:middle;margin-right:8px;"></i> ' + (currentWorkout.sessionType || 'Custom Workout');
         document.getElementById('welcome-title').textContent = 'Ready to Train!';
         document.getElementById('welcome-sub').textContent = 'Check your space and warm up, then hit Start.';
 
         const chips = document.getElementById('workout-chips');
         chips.innerHTML = [
-            `<span class="session-meta-chip">🏋️ ${n} exercises</span>`,
-            `<span class="session-meta-chip">⏱️ ~${d} min</span>`,
-            `<span class="session-meta-chip">💪 ${currentWorkout.difficulty || 'Custom'}</span>`
+            `<span class="session-meta-chip"><i data-lucide="dumbbell" style="width:14px;height:14px;"></i> ${n} exercises</span>`,
+            `<span class="session-meta-chip"><i data-lucide="clock" style="width:14px;height:14px;"></i> ~${d} min</span>`,
+            `<span class="session-meta-chip"><i data-lucide="activity" style="width:14px;height:14px;"></i> ${currentWorkout.difficulty || 'Custom'}</span>`
         ].join('');
+        lucide.createIcons({ root: chips });
         document.getElementById('start-btn').style.display = 'inline-flex';
 
         buildSidebar();

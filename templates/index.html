@@ -7,7 +7,7 @@
 
     <!-- Hero -->
     <div class="hero-section">
-        <p class="hero-greeting">👋 Welcome back{% if session.get('username') %}, <strong>{{ session.get('username')
+        <p class="hero-greeting">Welcome back{% if session.get('username') %}, <strong>{{ session.get('username')
                 }}</strong>{% endif %}!</p>
         <h1>Your Training Dashboard</h1>
         <p class="subtitle">Track progress, plan sessions, and hit your goals.</p>
@@ -22,30 +22,26 @@
     </div>
 
     <!-- KPI Stats -->
-    <div class="stats-grid" style="animation-delay:0.05s">
-        <div class="stat-card" style="animation-delay:0.05s">
-            <h3>Sessions</h3>
-            <div class="stat-number">{{ progress_data.total_sessions }}</div>
-            <div class="stat-sub">completed</div>
-            <div class="stat-icon">🏋️</div>
+    <div class="kpi-grid">
+        <div class="kpi-card slide-up" style="animation-delay: 0.1s;">
+            <i data-lucide="dumbbell" style="width:28px;height:28px;margin-bottom:10px;color:var(--primary);"></i>
+            <div class="kpi-value">{{ total_exercises or 0 }}</div>
+            <div class="kpi-label">Exercises Completed</div>
         </div>
-        <div class="stat-card" style="animation-delay:0.1s">
-            <h3>Minutes</h3>
-            <div class="stat-number">{{ progress_data.total_minutes }}</div>
-            <div class="stat-sub">total training</div>
-            <div class="stat-icon">⏱️</div>
+        <div class="kpi-card slide-up" style="animation-delay: 0.15s;">
+            <i data-lucide="timer" style="width:28px;height:28px;margin-bottom:10px;color:var(--primary);"></i>
+            <div class="kpi-value">{{ avg_session_length or 0 }}<span style="font-size:1rem;">m</span></div>
+            <div class="kpi-label">Avg Session Time</div>
         </div>
-        <div class="stat-card" style="animation-delay:0.15s">
-            <h3>Streak</h3>
-            <div class="stat-number">{{ progress_data.current_streak }}</div>
-            <div class="stat-sub">day streak</div>
-            <div class="stat-icon">🔥</div>
+        <div class="kpi-card slide-up" style="animation-delay: 0.2s;">
+            <i data-lucide="flame" style="width:28px;height:28px;margin-bottom:10px;color:var(--danger);"></i>
+            <div class="kpi-value">{{ current_streak or 0 }}</div>
+            <div class="kpi-label">Day Streak</div>
         </div>
-        <div class="stat-card" style="animation-delay:0.2s">
-            <h3>Avg Session</h3>
-            <div class="stat-number">{{ progress_data.avg_session_length }}</div>
-            <div class="stat-sub">minutes</div>
-            <div class="stat-icon">📈</div>
+        <div class="kpi-card slide-up" style="animation-delay: 0.25s;">
+            <i data-lucide="trending-up" style="width:28px;height:28px;margin-bottom:10px;color:var(--success);"></i>
+            <div class="kpi-value">{{ weekly_sessions or 0 }}</div>
+            <div class="kpi-label">Sessions this Week</div>
         </div>
     </div>
 
@@ -55,7 +51,7 @@
         <!-- Today's Session (left, wide) -->
         <div class="today-session-card" style="animation-delay:0.2s">
             <div class="section-heading">
-                <h2>🎯 Today's Session</h2>
+                <h2><i data-lucide="target"></i> Today's Session</h2>
                 <a href="{{ url_for('planner') }}">Custom plan →</a>
             </div>
             {% if today_session %}
@@ -63,17 +59,17 @@
                 {{ today_session.name }}
             </h3>
             <p style="color:var(--text-muted);margin-bottom:14px;">{{ today_session.description }}</p>
-            <div class="session-meta-row">
-                <span class="session-meta-chip">⏱️ {{ today_session.duration }} min</span>
-                <span class="session-meta-chip">💪 {{ today_session.difficulty }}</span>
+            <div class="session-meta-row" style="gap:8px;">
+                <span class="session-meta-chip"><i data-lucide="clock" style="width:14px;height:14px;"></i> {{ today_session.duration }} min</span>
+                <span class="session-meta-chip"><i data-lucide="activity" style="width:14px;height:14px;"></i> {{ today_session.difficulty }}</span>
                 {% if today_session.focus %}
-                <span class="session-meta-chip">🎯 {{ today_session.focus }}</span>
+                <span class="session-meta-chip"><i data-lucide="target" style="width:14px;height:14px;"></i> {{ today_session.focus }}</span>
                 {% endif %}
             </div>
             <button id="start-today-btn"
                 onclick="startTodaySession('{{ today_session.name }}', '{{ today_session.duration }}', '{{ today_session.difficulty }}', '{{ today_session.focus }}')"
-                class="btn btn-primary">
-                ▶ Start Session
+                class="btn btn-primary" style="display:flex;align-items:center;gap:8px;justify-content:center;">
+                <i data-lucide="play" style="width:18px;height:18px;fill:currentColor;"></i> Start Session
             </button>
             {% else %}
             <p style="color:var(--text-muted);margin-bottom:16px;">No session planned for today. Create a custom
@@ -83,22 +79,28 @@
         </div>
 
         <!-- Quick Actions (right, narrow) -->
-        <div class="quick-actions-card" style="animation-delay:0.25s">
-            <div class="section-heading" style="margin-bottom:14px;">
-                <h2>⚡ Quick Actions</h2>
+        <div class="dashboard-card slide-up" style="animation-delay: 0.35s;">
+            <div class="dashboard-card-header">
+                <h2><i data-lucide="zap"></i> Quick Actions</h2>
             </div>
-            <a href="{{ url_for('library') }}" class="quick-action-btn">
-                <span class="quick-action-icon">📚</span> Browse Exercises
-            </a>
-            <a href="{{ url_for('planner') }}" class="quick-action-btn">
-                <span class="quick-action-icon">📋</span> Plan Workout
-            </a>
-            <a href="{{ url_for('training_session') }}" class="quick-action-btn">
-                <span class="quick-action-icon">▶️</span> Start Session
-            </a>
-            <a href="{{ url_for('progress') }}" class="quick-action-btn">
-                <span class="quick-action-icon">📈</span> View Progress
-            </a>
+            <div class="quick-actions-grid">
+                <a href="{{ url_for('planner') }}" class="quick-action-btn">
+                    <i data-lucide="calendar" style="width:20px;height:20px;margin-bottom:8px;color:var(--primary);"></i>
+                    Plan Session
+                </a>
+                <a href="{{ url_for('planner') }}" class="quick-action-btn">
+                    <i data-lucide="plus" style="width:20px;height:20px;margin-bottom:8px;color:var(--primary);"></i>
+                    Add Custom
+                </a>
+                <a href="{{ url_for('library') }}" class="quick-action-btn">
+                    <i data-lucide="library" style="width:20px;height:20px;margin-bottom:8px;color:var(--primary);"></i>
+                    Library
+                </a>
+                <a href="{{ url_for('progress') }}" class="quick-action-btn">
+                    <i data-lucide="trending-up" style="width:20px;height:20px;margin-bottom:8px;color:var(--primary);"></i>
+                    View Progress
+                </a>
+            </div>
             {% if not session.get('username') %}
             <div class="divider"></div>
             <a href="{{ url_for('login') }}" class="btn btn-primary btn-full" style="margin-top:4px;">Login to Save
@@ -126,8 +128,8 @@
                 {% endfor %}
             </div>
             {% else %}
-            <div class="no-sessions">
-                <div style="font-size:2rem;margin-bottom:10px;">🏃</div>
+            <div class="no-sessions" style="text-align:center;padding:2rem;">
+                <i data-lucide="activity" style="width:48px;height:48px;color:var(--text-muted);margin:0 auto 12px auto;display:block;"></i>
                 <p>No sessions yet. Start your first workout!</p>
             </div>
             {% endif %}

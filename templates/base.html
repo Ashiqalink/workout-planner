@@ -18,14 +18,16 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 
 <body>
     <!-- Navigation -->
     <nav class="navbar">
         <div class="nav-container">
-            <div class="nav-logo">
-                <a href="{{ url_for('index') }}">⚡ FitTrack</a>
+            <div class="nav-brand">
+                <a href="{{ url_for('index') }}" style="display:flex;align-items:center;gap:6px;"><i data-lucide="zap" style="width:20px;height:20px;"></i> FitTrack</a>
             </div>
             <ul class="nav-menu">
                 <li><a href="{{ url_for('index') }}" {% if request.endpoint=='index' %}class="active" {% endif
@@ -78,7 +80,13 @@
     <!-- Toast renderer -->
     <script>
         (function () {
-            const icons = { success: '✅', error: '❌', warning: '⚠️', info: 'ℹ️', message: '💬' };
+            const icons = { 
+                success: '<i data-lucide="check-circle-2" style="color:var(--success);"></i>', 
+                error: '<i data-lucide="x-circle" style="color:var(--danger);"></i>', 
+                warning: '<i data-lucide="alert-triangle" style="color:var(--warning);"></i>', 
+                info: '<i data-lucide="info" style="color:var(--primary);"></i>', 
+                message: '<i data-lucide="message-square" style="color:var(--text);"></i>' 
+            };
             function showToast(msg, cat) {
                 cat = cat || 'message';
                 const container = document.getElementById('toast-container');
@@ -87,9 +95,10 @@
                 toast.innerHTML = `
                 <span class="toast-icon">${icons[cat] || icons.message}</span>
                 <span class="toast-msg">${msg}</span>
-                <button class="toast-close" aria-label="Close">✕</button>
-            `;
+                <button class="toast-close" aria-label="Close"><i data-lucide="x" style="width:16px;height:16px;"></i></button>
+                `;
                 container.appendChild(toast);
+                lucide.createIcons({ root: toast });
                 toast.querySelector('.toast-close').addEventListener('click', () => dismissToast(toast));
                 setTimeout(() => dismissToast(toast), 5000);
             }
@@ -107,6 +116,11 @@
     </script>
 
     {% block scripts %}{% endblock %}
+
+    <!-- Initialize Lucide Icons globally -->
+    <script>
+        lucide.createIcons();
+    </script>
 </body>
 
 </html>

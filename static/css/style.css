@@ -1708,3 +1708,22 @@ ul { list-style: none; }
   animation: spin 0.6s linear infinite;
 }
 .btn .spinner { width: 15px; height: 15px; }
+
+/* --- Icon Styles --- */
+.icon-sm { width: 14px; height: 14px; }
+.icon-md { width: 16px; height: 16px; }
+.icon-lg { width: 18px; height: 18px; }
+.icon-xl { width: 20px; height: 20px; }
+.icon-2xl { width: 24px; height: 24px; }
+.icon-3xl { width: 28px; height: 28px; }
+.icon-4xl { width: 32px; height: 32px; }
+.icon-5xl { width: 48px; height: 48px; }
+.icon-6xl { width: 64px; height: 64px; }
+
+.icon-primary { color: var(--primary); }
+.icon-success { color: var(--success); }
+.icon-warning { color: var(--warning); }
+.icon-danger { color: var(--danger); }
+.icon-muted { color: var(--text-muted); }
+.icon-fill { fill: currentColor; }
+.icon-inline { display: inline-block; vertical-align: middle; }

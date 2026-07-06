@@ -28,22 +28,22 @@
                         <label class="domain-card" id="dc-strength">
                             <input type="checkbox" name="domains" value="Strength">
                             <div class="domain-card-label">Strength</div>
-                            <div class="domain-tick hidden">✓</div>
+                            <div class="domain-tick hidden"><i data-lucide="check" style="width:16px;height:16px;margin:auto;"></i></div>
                         </label>
                         <label class="domain-card" id="dc-speed">
                             <input type="checkbox" name="domains" value="Speed & Mobility">
                             <div class="domain-card-label">Speed</div>
-                            <div class="domain-tick hidden">✓</div>
+                            <div class="domain-tick hidden"><i data-lucide="check" style="width:16px;height:16px;margin:auto;"></i></div>
                         </label>
                         <label class="domain-card" id="dc-endurance">
                             <input type="checkbox" name="domains" value="Endurance">
                             <div class="domain-card-label">Endurance</div>
-                            <div class="domain-tick hidden">✓</div>
+                            <div class="domain-tick hidden"><i data-lucide="check" style="width:16px;height:16px;margin:auto;"></i></div>
                         </label>
                         <label class="domain-card" id="dc-agility">
                             <input type="checkbox" name="domains" value="Agility">
                             <div class="domain-card-label">Agility</div>
-                            <div class="domain-tick hidden">✓</div>
+                            <div class="domain-tick hidden"><i data-lucide="check" style="width:16px;height:16px;margin:auto;"></i></div>
                         </label>
                         <label class="domain-card" id="dc-cognitive">
                             <input type="checkbox" name="domains" value="Cognitive">
@@ -92,9 +92,9 @@
                     </select>
                 </div>
 
-                <button type="submit" class="btn btn-primary btn-full" id="generate-btn">
-                    ⚡ Generate Workout
-                </button>
+                    <button type="button" class="btn btn-primary btn-lg btn-full" id="generate-btn" style="display:flex;align-items:center;justify-content:center;gap:8px;">
+                        <i data-lucide="zap" style="width:18px;height:18px;fill:currentColor;"></i> Generate Workout
+                    </button>
             </form>
         </div>
 
@@ -102,7 +102,11 @@
         <div id="workout-preview" class="workout-preview-panel hidden">
             <div class="section-heading" style="margin-bottom:20px;">
                 <h2 style="font-family:var(--font-head);font-size:1.15rem;font-weight:700;">Your Workout</h2>
-                <button class="btn btn-sm btn-ghost" onclick="regenerateWorkout()">↺ Regenerate</button>
+                <button class="btn btn-sm btn-ghost" id="regen-btn" style="display:flex;align-items:center;gap:6px;"><i data-lucide="refresh-cw" style="width:16px;height:16px;"></i> Regenerate</button>
+            </div>
+            
+            <div style="display:flex;gap:10px;margin-bottom:20px;">
+                <button class="btn btn-sm btn-primary" id="start-btn" style="display:flex;align-items:center;gap:6px;"><i data-lucide="play" style="width:16px;height:16px;fill:currentColor;"></i> Start Workout</button>
             </div>
 
             <div class="workout-preview-stats">
