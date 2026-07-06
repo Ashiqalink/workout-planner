@@ -7,7 +7,8 @@
 
     <!-- Hero -->
     <div class="hero-section">
-        <p class="hero-greeting">👋 Welcome back{% if session.get('username') %}, <strong>{{ session.get('username') }}</strong>{% endif %}!</p>
+        <p class="hero-greeting">👋 Welcome back{% if session.get('username') %}, <strong>{{ session.get('username')
+                }}</strong>{% endif %}!</p>
         <h1>Your Training Dashboard</h1>
         <p class="subtitle">Track progress, plan sessions, and hit your goals.</p>
         <div class="hero-actions">
@@ -58,25 +59,26 @@
                 <a href="{{ url_for('planner') }}">Custom plan →</a>
             </div>
             {% if today_session %}
-                <h3 style="font-family:var(--font-head);font-size:1.3rem;color:var(--text);margin-bottom:8px;">
-                    {{ today_session.name }}
-                </h3>
-                <p style="color:var(--text-muted);margin-bottom:14px;">{{ today_session.description }}</p>
-                <div class="session-meta-row">
-                    <span class="session-meta-chip">⏱️ {{ today_session.duration }} min</span>
-                    <span class="session-meta-chip">💪 {{ today_session.difficulty }}</span>
-                    {% if today_session.focus %}
-                    <span class="session-meta-chip">🎯 {{ today_session.focus }}</span>
-                    {% endif %}
-                </div>
-                <button id="start-today-btn"
-                    onclick="startTodaySession('{{ today_session.name }}', '{{ today_session.duration }}', '{{ today_session.difficulty }}', '{{ today_session.focus }}')"
-                    class="btn btn-primary">
-                    ▶ Start Session
-                </button>
+            <h3 style="font-family:var(--font-head);font-size:1.3rem;color:var(--text);margin-bottom:8px;">
+                {{ today_session.name }}
+            </h3>
+            <p style="color:var(--text-muted);margin-bottom:14px;">{{ today_session.description }}</p>
+            <div class="session-meta-row">
+                <span class="session-meta-chip">⏱️ {{ today_session.duration }} min</span>
+                <span class="session-meta-chip">💪 {{ today_session.difficulty }}</span>
+                {% if today_session.focus %}
+                <span class="session-meta-chip">🎯 {{ today_session.focus }}</span>
+                {% endif %}
+            </div>
+            <button id="start-today-btn"
+                onclick="startTodaySession('{{ today_session.name }}', '{{ today_session.duration }}', '{{ today_session.difficulty }}', '{{ today_session.focus }}')"
+                class="btn btn-primary">
+                ▶ Start Session
+            </button>
             {% else %}
-                <p style="color:var(--text-muted);margin-bottom:16px;">No session planned for today. Create a custom workout!</p>
-                <a href="{{ url_for('planner') }}" class="btn btn-primary">Plan Workout</a>
+            <p style="color:var(--text-muted);margin-bottom:16px;">No session planned for today. Create a custom
+                workout!</p>
+            <a href="{{ url_for('planner') }}" class="btn btn-primary">Plan Workout</a>
             {% endif %}
         </div>
 
@@ -99,7 +101,8 @@
             </a>
             {% if not session.get('username') %}
             <div class="divider"></div>
-            <a href="{{ url_for('login') }}" class="btn btn-primary btn-full" style="margin-top:4px;">Login to Save Progress</a>
+            <a href="{{ url_for('login') }}" class="btn btn-primary btn-full" style="margin-top:4px;">Login to Save
+                Progress</a>
             {% endif %}
         </div>
 
@@ -110,23 +113,23 @@
                 <a href="{{ url_for('progress') }}">See all →</a>
             </div>
             {% if recent_sessions %}
-                <div class="activity-list">
-                    {% for s in recent_sessions %}
-                    <div class="activity-item">
-                        <div class="activity-dot"></div>
-                        <div style="flex:1;min-width:0;">
-                            <div class="activity-name">{{ s.session_type }}</div>
-                        </div>
-                        <span class="badge badge-primary">{{ s.total_duration }} min</span>
-                        <div class="activity-date">{{ s.session_date }}</div>
+            <div class="activity-list">
+                {% for s in recent_sessions %}
+                <div class="activity-item">
+                    <div class="activity-dot"></div>
+                    <div style="flex:1;min-width:0;">
+                        <div class="activity-name">{{ s.session_type }}</div>
                     </div>
-                    {% endfor %}
+                    <span class="badge badge-primary">{{ s.total_duration }} min</span>
+                    <div class="activity-date">{{ s.session_date }}</div>
                 </div>
+                {% endfor %}
+            </div>
             {% else %}
-                <div class="no-sessions">
-                    <div style="font-size:2rem;margin-bottom:10px;">🏃</div>
-                    <p>No sessions yet. Start your first workout!</p>
-                </div>
+            <div class="no-sessions">
+                <div style="font-size:2rem;margin-bottom:10px;">🏃</div>
+                <p>No sessions yet. Start your first workout!</p>
+            </div>
             {% endif %}
         </div>
 
@@ -136,65 +139,65 @@
 
 {% block scripts %}
 <script>
-// Hero date
-(function() {
-    const d = new Date();
-    const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    const heroDay = document.getElementById('hero-day');
-    const heroDate = document.getElementById('hero-date');
-    if (heroDay) heroDay.textContent = days[d.getDay()];
-    if (heroDate) heroDate.textContent = months[d.getMonth()] + ' ' + d.getDate();
-})();
+    // Hero date
+    (function () {
+        const d = new Date();
+        const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const heroDay = document.getElementById('hero-day');
+        const heroDate = document.getElementById('hero-date');
+        if (heroDay) heroDay.textContent = days[d.getDay()];
+        if (heroDate) heroDate.textContent = months[d.getMonth()] + ' ' + d.getDate();
+    })();
 
-function startTodaySession(type, duration, intensity, focus) {
-    const btn = document.getElementById('start-today-btn');
-    if (btn) { btn.textContent = 'Generating…'; btn.disabled = true; }
+    function startTodaySession(type, duration, intensity, focus) {
+        const btn = document.getElementById('start-today-btn');
+        if (btn) { btn.textContent = 'Generating…'; btn.disabled = true; }
 
-    let difficulty = 'beginner';
-    if (intensity.toLowerCase().includes('high') || intensity.toLowerCase().includes('max')) {
-        difficulty = 'advanced';
-    } else if (intensity.toLowerCase().includes('moderate')) {
-        difficulty = 'intermediate';
-    }
-
-    let domains = [];
-    const lowerType = type.toLowerCase();
-    const lowerFocus = focus.toLowerCase();
-    if (lowerType.includes('strength') || lowerFocus.includes('upper') || lowerFocus.includes('lower') || lowerFocus.includes('strength')) domains.push('Strength');
-    if (lowerType.includes('speed') || lowerType.includes('mobility') || lowerFocus.includes('flexibility') || lowerFocus.includes('mobility')) domains.push('Speed & Mobility');
-    if (lowerType.includes('endurance') || lowerFocus.includes('cardio') || lowerFocus.includes('endurance')) domains.push('Endurance');
-    if (lowerType.includes('agility') || lowerFocus.includes('coordination') || lowerFocus.includes('agility')) domains.push('Agility');
-    if (lowerType.includes('cognitive') || lowerFocus.includes('cognitive') || lowerFocus.includes('mental')) domains.push('Cognitive');
-    if (domains.length === 0) domains = ['Strength', 'Speed & Mobility', 'Endurance', 'Agility', 'Cognitive'];
-
-    let apiFocus = '';
-    if (lowerFocus.includes('upper')) apiFocus = 'upper_body';
-    else if (lowerFocus.includes('lower')) apiFocus = 'lower_body';
-    else if (lowerFocus.includes('core')) apiFocus = 'core';
-    else if (lowerFocus.includes('cardio')) apiFocus = 'cardio';
-    else if (lowerFocus.includes('flexibility') || lowerFocus.includes('stretch')) apiFocus = 'flexibility';
-
-    fetch('/api/generate-workout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ domains, duration: parseInt(duration) || 15, difficulty, focus: apiFocus })
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.success) {
-            data.sessionType = type;
-            sessionStorage.setItem('currentWorkout', JSON.stringify(data));
-            window.location.href = '/session';
-        } else {
-            if (window.showToast) showToast('Error: ' + (data.error || 'Could not generate workout'), 'error');
-            if (btn) { btn.textContent = '▶ Start Session'; btn.disabled = false; }
+        let difficulty = 'beginner';
+        if (intensity.toLowerCase().includes('high') || intensity.toLowerCase().includes('max')) {
+            difficulty = 'advanced';
+        } else if (intensity.toLowerCase().includes('moderate')) {
+            difficulty = 'intermediate';
         }
-    })
-    .catch(() => {
-        if (window.showToast) showToast('Network error. Please try again.', 'error');
-        if (btn) { btn.textContent = '▶ Start Session'; btn.disabled = false; }
-    });
-}
+
+        let domains = [];
+        const lowerType = type.toLowerCase();
+        const lowerFocus = focus.toLowerCase();
+        if (lowerType.includes('strength') || lowerFocus.includes('upper') || lowerFocus.includes('lower') || lowerFocus.includes('strength')) domains.push('Strength');
+        if (lowerType.includes('speed') || lowerType.includes('mobility') || lowerFocus.includes('flexibility') || lowerFocus.includes('mobility')) domains.push('Speed & Mobility');
+        if (lowerType.includes('endurance') || lowerFocus.includes('cardio') || lowerFocus.includes('endurance')) domains.push('Endurance');
+        if (lowerType.includes('agility') || lowerFocus.includes('coordination') || lowerFocus.includes('agility')) domains.push('Agility');
+        if (lowerType.includes('cognitive') || lowerFocus.includes('cognitive') || lowerFocus.includes('mental')) domains.push('Cognitive');
+        if (domains.length === 0) domains = ['Strength', 'Speed & Mobility', 'Endurance', 'Agility', 'Cognitive'];
+
+        let apiFocus = '';
+        if (lowerFocus.includes('upper')) apiFocus = 'upper_body';
+        else if (lowerFocus.includes('lower')) apiFocus = 'lower_body';
+        else if (lowerFocus.includes('core')) apiFocus = 'core';
+        else if (lowerFocus.includes('cardio')) apiFocus = 'cardio';
+        else if (lowerFocus.includes('flexibility') || lowerFocus.includes('stretch')) apiFocus = 'flexibility';
+
+        fetch('/api/generate-workout', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ domains, duration: parseInt(duration) || 15, difficulty, focus: apiFocus })
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    data.sessionType = type;
+                    sessionStorage.setItem('currentWorkout', JSON.stringify(data));
+                    window.location.href = '/session';
+                } else {
+                    if (window.showToast) showToast('Error: ' + (data.error || 'Could not generate workout'), 'error');
+                    if (btn) { btn.textContent = '▶ Start Session'; btn.disabled = false; }
+                }
+            })
+            .catch(() => {
+                if (window.showToast) showToast('Network error. Please try again.', 'error');
+                if (btn) { btn.textContent = '▶ Start Session'; btn.disabled = false; }
+            });
+    }
 </script>
 {% endblock %}

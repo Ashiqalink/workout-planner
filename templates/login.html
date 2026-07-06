@@ -7,7 +7,7 @@
     <div class="auth-container">
         <div class="auth-card">
             <div class="auth-header">
-                <h1>⚡ FitTrack</h1>
+                <h1> FitTrack</h1>
                 <p>Welcome back! Sign in to continue your training journey.</p>
             </div>
 
@@ -42,21 +42,21 @@
 
 {% block scripts %}
 <script>
-function togglePwd(inputId, btn) {
-    const inp = document.getElementById(inputId);
-    if (inp.type === 'password') {
-        inp.type = 'text';
-        btn.textContent = '🙈';
-    } else {
-        inp.type = 'password';
-        btn.textContent = '👁️';
+    function togglePwd(inputId, btn) {
+        const inp = document.getElementById(inputId);
+        if (inp.type === 'password') {
+            inp.type = 'text';
+            btn.textContent = '🙈';
+        } else {
+            inp.type = 'password';
+            btn.textContent = '👁️';
+        }
     }
-}
 
-document.getElementById('login-form').addEventListener('submit', function() {
-    const btn = document.getElementById('login-btn');
-    btn.textContent = 'Signing in…';
-    btn.disabled = true;
-});
+    document.getElementById('login-form').addEventListener('submit', function () {
+        const btn = document.getElementById('login-btn');
+        btn.textContent = 'Signing in…';
+        btn.disabled = true;
+    });
 </script>
 {% endblock %}

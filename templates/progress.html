@@ -4,7 +4,6 @@
 
 {% block content %}
 <div class="progress-page">
-
     <div class="page-header">
         <div class="breadcrumb"><a href="{{ url_for('index') }}">Home</a> › Progress</div>
         <h1>📈 Progress Tracking</h1>
@@ -57,15 +56,15 @@
 
     <!-- Domain Progress Cards -->
     <div class="section-heading" style="margin-bottom:16px;">
-        <h2>💪 Domain Breakdown</h2>
+        <h2>Domain Breakdown</h2>
     </div>
     <div class="domain-cards-grid">
         {% set domains = [
-            ('strength',      '💪', 'Strength'),
-            ('speed_mobility','⚡', 'Speed & Mobility'),
-            ('endurance',     '🏃', 'Endurance'),
-            ('agility',       '🤸', 'Agility'),
-            ('cognitive',     '🧠', 'Cognitive')
+        ('strength', '💪', 'Strength'),
+        ('speed_mobility','⚡', 'Speed & Mobility'),
+        ('endurance', '🏃', 'Endurance'),
+        ('agility', '🤸', 'Agility'),
+        ('cognitive', '🧠', 'Cognitive')
         ] %}
         {% for key, icon, label in domains %}
         {% set d = progress_data[key] if progress_data[key] is defined else {} %}
@@ -76,7 +75,9 @@
                 <span class="domain-stat">Minutes: <span>{{ d.minutes or 0 }}</span></span>
             </div>
             <div class="progress-bar progress-bar-lg">
-                <div class="progress-fill animated" style="--target-w:{{ [d.progress or 0, 100] | min }}%;width:{{ [d.progress or 0, 100] | min }}%"></div>
+                <div class="progress-fill animated"
+                    style="--target-w:{{ [d.progress or 0, 100] | min }}%;width:{{ [d.progress or 0, 100] | min }}%">
+                </div>
             </div>
             <div style="font-size:0.78rem;color:var(--text-light);margin-top:5px;text-align:right;">
                 Week {{ d.week or 1 }} of program
@@ -90,23 +91,23 @@
         <h2>📅 Recent Sessions</h2>
     </div>
     {% if recent_sessions %}
-        <div class="sessions-list">
-            {% for s in recent_sessions %}
-            <div class="session-item">
-                <div class="session-date">{{ s.session_date or '—' }}</div>
-                <div class="session-details">
-                    <h4>{{ s.session_type or 'Custom Workout' }}</h4>
-                    <p>{{ s.total_duration or 0 }} minutes</p>
-                </div>
-                <div class="session-status">Completed</div>
+    <div class="sessions-list">
+        {% for s in recent_sessions %}
+        <div class="session-item">
+            <div class="session-date">{{ s.session_date or '—' }}</div>
+            <div class="session-details">
+                <h4>{{ s.session_type or 'Custom Workout' }}</h4>
+                <p>{{ s.total_duration or 0 }} minutes</p>
             </div>
-            {% endfor %}
+            <div class="session-status">Completed</div>
         </div>
+        {% endfor %}
+    </div>
     {% else %}
-        <div class="no-sessions">
-            <div style="font-size:2rem;margin-bottom:10px;">🏃</div>
-            <p>No sessions recorded yet. <a href="{{ url_for('training_session') }}">Start your first workout →</a></p>
-        </div>
+    <div class="no-sessions">
+        <div style="font-size:2rem;margin-bottom:10px;">🏃</div>
+        <p>No sessions recorded yet. <a href="{{ url_for('training_session') }}">Start your first workout →</a></p>
+    </div>
     {% endif %}
 
 </div>
@@ -114,39 +115,39 @@
 
 {% block scripts %}
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    Chart.defaults.font.family = "'Inter', system-ui, sans-serif";
-    Chart.defaults.color = '#5A7775';
+    document.addEventListener('DOMContentLoaded', function () {
+        Chart.defaults.font.family = "'Inter', system-ui, sans-serif";
+        Chart.defaults.color = '#5A7775';
 
-    const teal = '#00BFA5';
-    const colors = ['#EF5350','#00BFA5','#29B6F6','#FFA726','#9C27B0'];
+        const teal = '#00BFA5';
+        const colors = ['#EF5350', '#00BFA5', '#29B6F6', '#FFA726', '#9C27B0'];
 
-    // Domain doughnut
-    const dCtx = document.getElementById('domainChart').getContext('2d');
-    new Chart(dCtx, {
-        type: 'doughnut',
-        data: {
-            labels: ['Strength','Speed & Mobility','Endurance','Agility','Cognitive'],
-            datasets: [{
-                data: [
-                    {{ progress_data.strength.minutes or 0 }},
-                    {{ progress_data.speed_mobility.minutes or 0 }},
+        // Domain doughnut
+        const dCtx = document.getElementById('domainChart').getContext('2d');
+        new Chart(dCtx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Strength', 'Speed & Mobility', 'Endurance', 'Agility', 'Cognitive'],
+                datasets: [{
+                    data: [
+                        {{ progress_data.strength.minutes or 0 }},
+                {{ progress_data.speed_mobility.minutes or 0 }},
                     {{ progress_data.endurance.minutes or 0 }},
-                    {{ progress_data.agility.minutes or 0 }},
-                    {{ progress_data.cognitive.minutes or 0 }}
+        {{ progress_data.agility.minutes or 0 }},
+        {{ progress_data.cognitive.minutes or 0 }}
                 ],
-                backgroundColor: colors,
-                borderWidth: 2,
-                borderColor: '#fff'
+        backgroundColor: colors,
+        borderWidth: 2,
+        borderColor: '#fff'
             }]
         },
         options: {
-            responsive: true, maintainAspectRatio: false,
-            cutout: '65%',
-            plugins: {
-                legend: { position: 'bottom', labels: { padding: 12, boxWidth: 12, font: { size: 12 } } }
-            }
+        responsive: true, maintainAspectRatio: false,
+        cutout: '65%',
+        plugins: {
+            legend: { position: 'bottom', labels: { padding: 12, boxWidth: 12, font: { size: 12 } } }
         }
+    }
     });
 
     // Weekly line chart
@@ -154,28 +155,28 @@ document.addEventListener('DOMContentLoaded', function() {
     new Chart(wCtx, {
         type: 'line',
         data: {
-            labels: ['Week 1','Week 2','Week 3','Week 4'],
+            labels: ['Week 1', 'Week 2', 'Week 3', 'Week 4'],
             datasets: [{
                 label: 'Minutes trained',
-                data: [{{ progress_data.weekly_progress|join(', ') if progress_data.weekly_progress else '0, 0, 0, 0' }}],
-                borderColor: teal,
-                backgroundColor: 'rgba(0,191,165,0.1)',
-                borderWidth: 2.5,
-                pointBackgroundColor: teal,
-                pointRadius: 4,
-                pointHoverRadius: 6,
-                fill: true,
-                tension: 0.4
-            }]
-        },
+                data: [{{ progress_data.weekly_progress | join(', ') if progress_data.weekly_progress else '0, 0, 0, 0' }}],
+            borderColor: teal,
+            backgroundColor: 'rgba(0,191,165,0.1)',
+            borderWidth: 2.5,
+            pointBackgroundColor: teal,
+            pointRadius: 4,
+            pointHoverRadius: 6,
+            fill: true,
+            tension: 0.4
+        }]
+    },
         options: {
-            responsive: true, maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
-            scales: {
-                x: { grid: { color: 'rgba(0,0,0,0.04)' } },
-                y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.04)' } }
-            }
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+            x: { grid: { color: 'rgba(0,0,0,0.04)' } },
+            y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.04)' } }
         }
+    }
     });
 
     // Animate progress bars on scroll into view
