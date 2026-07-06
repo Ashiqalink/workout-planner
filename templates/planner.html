@@ -87,6 +87,12 @@
                     </select>
                 </div>
 
+                <!-- Custom Goal (LLM Prompt) -->
+                <div class="form-group">
+                    <label for="goal">Custom Training Goal <span style="font-weight:400;color:var(--text-muted)">(optional)</span></label>
+                    <textarea id="goal" name="goal" class="form-control" rows="3" placeholder="e.g. Focus on dynamic stability, target weak shoulder blades, low impact for back pain"></textarea>
+                </div>
+
                 <button type="submit" class="btn btn-primary btn-lg btn-full" id="generate-btn"
                     style="display:flex;align-items:center;justify-content:center;gap:8px;">
                     <i class="icon-lg icon-fill" data-lucide="zap"></i> Generate Workout
@@ -108,6 +114,14 @@
                         data-lucide="play"></i> Start Workout</button>
             </div>
 
+            <!-- AI Explanation Block -->
+            <div class="card-flat" id="ai-explanation-box" style="margin-bottom:20px; background:var(--border-light); border:none; display:none; padding:16px;">
+                <h4 style="font-family:var(--font-head);font-size:0.9rem;font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:6px;color:var(--primary-mid);">
+                    <i class="icon-md" data-lucide="sparkles"></i> AI Workout Insights
+                </h4>
+                <p id="ai-explanation-text" style="font-size:0.85rem;line-height:1.45;color:var(--text-muted);margin:0;"></p>
+            </div>
+
             <div class="workout-preview-stats">
                 <div class="wp-stat">
                     <div class="wp-stat-number" id="total-exercises">0</div>
@@ -125,7 +139,17 @@
 
             <div class="exercises-list" id="exercises-list"></div>
 
-            <button class="btn btn-primary btn-full" onclick="startWorkout()">▶ Start Workout</button>
+            <!-- Save Workout Template Action -->
+            <div class="card-flat" id="save-workout-box" style="margin-top:24px; background:var(--surface-alt); border:1px dashed var(--border); display:flex; flex-direction:column; gap:12px; padding:18px; border-radius:var(--radius-lg);">
+                <h4 style="font-family:var(--font-head);font-size:0.9rem;font-weight:700;margin:0;display:flex;align-items:center;gap:6px;"><i class="icon-md" data-lucide="save"></i> Save Workout Template</h4>
+                <p style="font-size:0.8rem;color:var(--text-muted);margin:0;">Add this workout session to your library templates to reload it directly from your Dashboard.</p>
+                <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                    <input type="text" id="save-workout-name" class="form-control" placeholder="e.g. Knee Rehab Session" style="flex:1;min-width:180px;padding:6px 12px;font-size:0.85rem;">
+                    <button class="btn btn-sm btn-outline" onclick="saveWorkoutTemplate()">Save Template</button>
+                </div>
+            </div>
+
+            <button class="btn btn-primary btn-full" onclick="startWorkout()" style="margin-top:20px;">▶ Start Workout</button>
         </div>
 
         <!-- Placeholder when no workout generated yet -->
@@ -160,6 +184,7 @@
         const duration = parseInt(document.getElementById('duration').value);
         const difficulty = document.getElementById('difficulty').value;
         const focus = document.getElementById('focus').value;
+        const goal = document.getElementById('goal').value;
 
         if (domains.length === 0) {
             if (window.showToast) showToast('Select at least one training domain.', 'warning');
@@ -177,7 +202,7 @@
         fetch('/api/generate-workout', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ domains, duration, difficulty, focus })
+            body: JSON.stringify({ domains, duration, difficulty, focus, goal })
         })
             .then(r => r.json())
             .then(data => {
@@ -222,10 +247,62 @@
             list.appendChild(item);
         });
 
+        // AI Explanation box update
+        const aiBox = document.getElementById('ai-explanation-box');
+        const aiText = document.getElementById('ai-explanation-text');
+        if (workout.explanation) {
+            aiBox.style.display = 'block';
+            aiText.textContent = workout.explanation;
+        } else {
+            aiBox.style.display = 'none';
+        }
+        
+        // Reinitialize Lucide icons in explanation box if any
+        lucide.createIcons({ root: aiBox });
+
         sessionStorage.setItem('currentWorkout', JSON.stringify(workout));
     }
 
     function regenerateWorkout() { plannerGenerateWorkout(); }
     function startWorkout() { window.location.href = '/session'; }
+
+    function saveWorkoutTemplate() {
+         const stored = sessionStorage.getItem('currentWorkout');
+         if (!stored) {
+             if (window.showToast) showToast('No workout to save.', 'error');
+             return;
+         }
+         const workoutName = document.getElementById('save-workout-name').value.trim();
+         if (!workoutName) {
+             if (window.showToast) showToast('Please enter a name for the workout.', 'warning');
+             return;
+         }
+         
+         const workout = JSON.parse(stored);
+         
+         fetch('/api/workouts/save', {
+             method: 'POST',
+             headers: { 'Content-Type': 'application/json' },
+             body: JSON.stringify({
+                 workout_name: workoutName,
+                 workout_description: workout.explanation || 'Custom generated workout.',
+                 exercises: workout.exercises,
+                 total_duration: workout.total_duration,
+                 difficulty: workout.difficulty
+             })
+         })
+         .then(r => r.json())
+         .then(data => {
+             if (data.success) {
+                 if (window.showToast) showToast('Workout template saved successfully!', 'success');
+                 document.getElementById('save-workout-name').value = '';
+             } else {
+                 if (window.showToast) showToast('Error: ' + data.error, 'error');
+             }
+         })
+         .catch(() => {
+             if (window.showToast) showToast('Network error saving workout template.', 'error');
+         });
+     }
 </script>
 {% endblock %}

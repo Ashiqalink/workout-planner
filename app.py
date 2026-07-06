@@ -81,6 +81,19 @@ def init_db():
             instructions TEXT
         )
     ''')
+    # Create saved workouts table
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS saved_workouts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT,
+            workout_name TEXT NOT NULL,
+            workout_description TEXT,
+            exercises_json TEXT NOT NULL,
+            total_duration REAL NOT NULL,
+            difficulty TEXT NOT NULL,
+            created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
 
     conn.commit()
     conn.close()
@@ -124,8 +137,17 @@ def load_exercise_data():
         }
 
 def populate_exercises_db():
-    """Populate exercises table from CSV data."""
+    """Populate exercises table from CSV data if empty."""
     conn = get_db_connection()
+
+    # Check if table already has rows
+    try:
+        count = conn.execute('SELECT COUNT(*) FROM exercises').fetchone()[0]
+        if count > 0:
+            conn.close()
+            return
+    except Exception:
+        pass
 
     # Clear existing exercises
     conn.execute('DELETE FROM exercises')
@@ -299,16 +321,17 @@ import re
 
 LM_STUDIO_API_URL = os.environ.get('LM_STUDIO_API_URL', 'http://localhost:1234/v1')
 
-def generate_workout_via_llm(domains, duration, difficulty, focus, candidates):
+def generate_workout_via_llm(domains, duration, difficulty, focus, candidates, goal=None):
     url = f"{LM_STUDIO_API_URL}/chat/completions"
     
-    system_content = "You are a professional fitness coach. You must design a cohesive workout session using the provided candidate exercises. Respond ONLY with a raw JSON object containing the schema requested. No markdown format."
+    system_content = "You are a professional fitness coach assistant. You must design a cohesive workout session using the provided candidate exercises. Respond ONLY with a raw JSON object containing the schema requested. No markdown format."
     
     user_content = f"""Design a workout session using the candidate exercises below.
 Target Duration: {duration} minutes
 Difficulty: {difficulty}
 Focus Area: {focus if focus else 'None'}
 Selected Domains: {', '.join(domains)}
+Custom Goal/Instructions: {goal if goal else 'None'}
 
 Candidate Exercises:
 {json.dumps(candidates, indent=2)}
@@ -318,7 +341,8 @@ Rules:
 2. The total sum of the selected exercise durations MUST be close to {duration} minutes.
 3. You can adjust the duration (in minutes) of selected exercises to fit the target duration.
 4. If there are not enough candidates, you may generate highly related new exercises that fit the target domains, using the same JSON format.
-5. Respond strictly with JSON. Do not wrap in ```json or ``` blocks.
+5. Provide a short 2-3 sentence paragraph under the "explanation" key explaining why this workout is designed this way, what it targets, and how it helps the user achieve their specific Custom Goal or focus area.
+6. Respond strictly with JSON. Do not wrap in ```json or ``` blocks.
 
 Expected JSON output format:
 {{
@@ -332,11 +356,12 @@ Expected JSON output format:
       "target_muscles": "Target muscles."
     }}
   ],
-  "total_duration": 15
+  "total_duration": 15,
+  "explanation": "This workout focuses on lower back stability and core strength..."
 }}"""
 
     payload = {
-        "model": "qwen3.5-9b",
+        "model": get_loaded_model(),
         "messages": [
             {"role": "system", "content": system_content},
             {"role": "user", "content": user_content}
@@ -377,6 +402,7 @@ Expected JSON output format:
                     total_time += ex["duration"]
                 
                 workout_data["total_duration"] = round(total_time, 1)
+                workout_data["explanation"] = workout_data.get("explanation", "Custom workout designed to fit your goals.")
                 workout_data["success"] = True
                 return workout_data
                 
@@ -396,6 +422,7 @@ def api_generate_workout():
         domains = data.get('domains', [])
         duration = int(data.get('duration', 15))
         difficulty = data.get('difficulty', 'beginner')
+        goal = data.get('goal', '')
 
         # Check if training data is available
         if not training_data or not training_data.get('exercises'):
@@ -439,10 +466,17 @@ def api_generate_workout():
 
         # Try local LLM generation
         focus = data.get('focus', '')
-        llm_workout = generate_workout_via_llm(domains, duration, difficulty, focus, candidates)
+        llm_workout = generate_workout_via_llm(domains, duration, difficulty, focus, candidates, goal)
         if llm_workout:
             llm_workout['workout_id'] = f"workout_{datetime.now().strftime('%Y%m%d%H%M%S')}"
             return jsonify(llm_workout)
+
+        # FALLBACK: Create explanation
+        fallback_explanation = f"A {difficulty} level workout session focusing on {', '.join(domains)} domains"
+        if focus:
+            fallback_explanation += f" with a focus on {focus}."
+        else:
+            fallback_explanation += "."
 
         # FALLBACK: Filter exercises based on criteria (original rule-based logic)
         filtered_exercises = []
@@ -515,10 +549,117 @@ def api_generate_workout():
             'exercises': cleaned_exercises,
             'total_duration': round(total_time, 1),
             'difficulty': difficulty,
+            'explanation': fallback_explanation,
             'workout_id': f"workout_{datetime.now().strftime('%Y%m%d%H%M%S')}"
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 400
+
+@app.route('/api/exercises/add', methods=['POST'])
+def api_add_exercise():
+    """Add a custom exercise to the library."""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'No data received'}), 400
+            
+        name = data.get('name')
+        category = data.get('category')
+        duration = float(data.get('duration', 0.5))
+        difficulty = data.get('difficulty', 'beginner')
+        description = data.get('description', '')
+        target_muscles = data.get('target_muscles', '')
+        instructions = data.get('instructions', '')
+        
+        if not name or not category:
+            return jsonify({'success': False, 'error': 'Name and Category are required'}), 400
+
+        # Save to database
+        conn = get_db_connection()
+        conn.execute('''
+            INSERT INTO exercises (category, exercise_name, duration_minutes, 
+                                 primary_benefit, secondary_benefit, difficulty_level, instructions)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (category, name, duration, description, target_muscles, difficulty, instructions))
+        conn.commit()
+        conn.close()
+        
+        # Append to in-memory training_data['exercises']
+        new_ex = {
+            'category': category,
+            'name': name,
+            'duration': duration,
+            'description': description,
+            'target_muscles': target_muscles,
+            'difficulty': difficulty,
+            'instructions': instructions
+        }
+        if 'exercises' in training_data:
+            training_data['exercises'].append(new_ex)
+            
+        return jsonify({'success': True, 'exercise': new_ex})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/workouts/save', methods=['POST'])
+def api_save_workout():
+    """Save an approved workout template."""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'No data received'}), 400
+            
+        user_id = str(session.get('user_id', 'guest'))
+        name = data.get('workout_name')
+        description = data.get('workout_description', '')
+        exercises = data.get('exercises', [])
+        duration = float(data.get('total_duration', 0))
+        difficulty = data.get('difficulty', 'intermediate')
+        
+        if not name or not exercises:
+            return jsonify({'success': False, 'error': 'Workout name and exercises are required'}), 400
+
+        conn = get_db_connection()
+        conn.execute('''
+            INSERT INTO saved_workouts (user_id, workout_name, workout_description, exercises_json, total_duration, difficulty)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (user_id, name, description, json.dumps(exercises), duration, difficulty))
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/workouts/saved', methods=['GET'])
+def api_list_saved_workouts():
+    """Get all saved workouts for the current user."""
+    try:
+        user_id = str(session.get('user_id', 'guest'))
+        conn = get_db_connection()
+        rows = conn.execute('''
+            SELECT id, workout_name, workout_description, exercises_json, total_duration, difficulty, created_date
+            FROM saved_workouts
+            WHERE user_id = ?
+            ORDER BY created_date DESC
+        ''', (user_id,)).fetchall()
+        conn.close()
+        
+        saved = []
+        for r in rows:
+            saved.append({
+                'id': r['id'],
+                'workout_name': r['workout_name'],
+                'workout_description': r['workout_description'],
+                'exercises': json.loads(r['exercises_json']),
+                'total_duration': r['total_duration'],
+                'difficulty': r['difficulty'],
+                'created_date': r['created_date']
+            })
+            
+        return jsonify({'success': True, 'saved_workouts': saved})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/complete_session', methods=['POST'])
 def api_complete_session():

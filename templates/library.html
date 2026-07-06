@@ -6,12 +6,70 @@
 <div class="library-page">
 
     <!-- Header -->
-    <div class="page-header">
-        <div class="breadcrumb">
-            <a href="{{ url_for('index') }}">Home</a> › Library
+    <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:15px;margin-bottom:24px;">
+        <div>
+            <div class="breadcrumb">
+                <a href="{{ url_for('index') }}">Home</a> › Library
+            </div>
+            <h1>📚 Exercise Library</h1>
+            <p>Browse all exercises across 5 training domains</p>
         </div>
-        <h1>📚 Exercise Library</h1>
-        <p>Browse all exercises across 5 training domains</p>
+        <button class="btn btn-primary" onclick="toggleAddExerciseForm()" style="display:flex;align-items:center;gap:8px;">
+            <i class="icon-xl" data-lucide="plus"></i> Add Custom Exercise
+        </button>
+    </div>
+
+    <!-- Custom Exercise Form (Hidden by default) -->
+    <div class="card hidden" id="add-exercise-panel" style="margin-bottom:24px;">
+        <h3 style="font-family:var(--font-head);margin-bottom:16px;">Add Custom Exercise</h3>
+        <form id="add-exercise-form">
+            <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:15px;margin-bottom:15px;">
+                <div class="form-group">
+                    <label for="ex-name">Exercise Name</label>
+                    <input type="text" id="ex-name" class="form-control" placeholder="e.g. Diamond Push-ups" required>
+                </div>
+                <div class="form-group">
+                    <label for="ex-category">Domain</label>
+                    <select id="ex-category" class="form-control" required>
+                        <option value="Strength & Power">Strength & Power</option>
+                        <option value="Speed & Mobility">Speed & Mobility</option>
+                        <option value="Endurance">Endurance</option>
+                        <option value="Agility">Agility</option>
+                        <option value="Cognition">Cognition</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="ex-difficulty">Difficulty</label>
+                    <select id="ex-difficulty" class="form-control" required>
+                        <option value="beginner">Beginner</option>
+                        <option value="intermediate">Intermediate</option>
+                        <option value="advanced">Advanced</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="ex-duration">Duration (minutes)</label>
+                    <input type="number" id="ex-duration" class="form-control" step="0.1" min="0.1" value="1.0" required>
+                </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;margin-bottom:15px;">
+                <div class="form-group">
+                    <label for="ex-muscles">Target Muscles (optional)</label>
+                    <input type="text" id="ex-muscles" class="form-control" placeholder="e.g. Chest, triceps">
+                </div>
+                <div class="form-group">
+                    <label for="ex-desc">Description (optional)</label>
+                    <input type="text" id="ex-desc" class="form-control" placeholder="e.g. Targets inner chest and arm strength">
+                </div>
+            </div>
+            <div class="form-group" style="margin-bottom:15px;">
+                <label for="ex-instructions">Instructions (optional)</label>
+                <textarea id="ex-instructions" class="form-control" rows="3" placeholder="Step 1... Step 2..."></textarea>
+            </div>
+            <div style="display:flex;justify-content:flex-end;gap:10px;">
+                <button type="button" class="btn btn-ghost" onclick="toggleAddExerciseForm()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save Exercise</button>
+            </div>
+        </form>
     </div>
 
     <!-- Search bar -->
@@ -81,7 +139,49 @@
         inp.addEventListener('keypress', function (e) {
             if (e.key === 'Enter') performSearch();
         });
+
+        // Add exercise form submit
+        document.getElementById('add-exercise-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            saveCustomExercise();
+        });
     });
+
+    function toggleAddExerciseForm() {
+        const panel = document.getElementById('add-exercise-panel');
+        panel.classList.toggle('hidden');
+    }
+
+    function saveCustomExercise() {
+        const name = document.getElementById('ex-name').value;
+        const category = document.getElementById('ex-category').value;
+        const difficulty = document.getElementById('ex-difficulty').value;
+        const duration = parseFloat(document.getElementById('ex-duration').value);
+        const target_muscles = document.getElementById('ex-muscles').value;
+        const description = document.getElementById('ex-desc').value;
+        const instructions = document.getElementById('ex-instructions').value;
+
+        fetch('/api/exercises/add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, category, difficulty, duration, target_muscles, description, instructions })
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                if (window.showToast) showToast('Custom exercise added successfully!', 'success');
+                allExercises.push(data.exercise);
+                applyAll();
+                document.getElementById('add-exercise-form').reset();
+                toggleAddExerciseForm();
+            } else {
+                if (window.showToast) showToast('Error: ' + data.error, 'error');
+            }
+        })
+        .catch(() => {
+            if (window.showToast) showToast('Network error saving exercise.', 'error');
+        });
+    }
 
     function loadLibraryExercises() {
         fetch('/api/exercises')
