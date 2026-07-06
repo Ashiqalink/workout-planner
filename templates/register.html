@@ -1,64 +1,134 @@
 {% extends "base.html" %}
 
-{% block title %}Register - Student Training System{% endblock %}
+{% block title %}Create Account – FitTrack{% endblock %}
 
 {% block content %}
 <div class="auth-page">
     <div class="auth-container">
         <div class="auth-card">
             <div class="auth-header">
-                <h1>📝 Register</h1>
-                <p>Create your account to track your training progress</p>
+                <h1>⚡ FitTrack</h1>
+                <p>Create your account and start tracking your training.</p>
             </div>
 
-            <form method="POST" action="{{ url_for('register') }}" class="auth-form">
+            <form method="POST" action="{{ url_for('register') }}" class="auth-form" id="reg-form">
                 <div class="form-group">
                     <label for="username">Username</label>
-                    <input type="text" id="username" name="username" required>
+                    <input type="text" id="username" name="username" class="form-control"
+                        placeholder="Choose a username" required minlength="3" autocomplete="username">
+                    <div class="form-feedback">Username must be at least 3 characters.</div>
                 </div>
 
                 <div class="form-group">
                     <label for="email">Email</label>
-                    <input type="email" id="email" name="email" required>
+                    <input type="email" id="email" name="email" class="form-control"
+                        placeholder="Your email address" required autocomplete="email">
                 </div>
 
                 <div class="form-group">
                     <label for="password">Password</label>
-                    <input type="password" id="password" name="password" required>
+                    <div class="input-group">
+                        <input type="password" id="password" name="password" class="form-control"
+                            placeholder="Min 6 characters" required minlength="6"
+                            autocomplete="new-password" oninput="checkStrength(this.value)">
+                        <button type="button" class="input-toggle-btn" onclick="togglePwd('password', this)"
+                            aria-label="Show password">👁️</button>
+                    </div>
+                    <div class="password-strength" id="strength-wrap" style="display:none;">
+                        <div class="strength-bar">
+                            <div class="strength-fill" id="strength-fill"></div>
+                        </div>
+                        <div class="strength-label" id="strength-label">Weak</div>
+                    </div>
                 </div>
 
                 <div class="form-group">
                     <label for="confirm_password">Confirm Password</label>
-                    <input type="password" id="confirm_password" name="confirm_password" required>
+                    <div class="input-group">
+                        <input type="password" id="confirm_password" name="confirm_password" class="form-control"
+                            placeholder="Repeat your password" required autocomplete="new-password">
+                        <button type="button" class="input-toggle-btn" onclick="togglePwd('confirm_password', this)"
+                            aria-label="Show password">👁️</button>
+                    </div>
+                    <div class="form-feedback" id="confirm-feedback">Passwords do not match.</div>
                 </div>
 
-                <button type="submit" class="btn btn-primary btn-full">Create Account</button>
+                <button type="submit" class="btn btn-primary btn-full btn-lg" id="reg-btn">Create Account →</button>
             </form>
 
             <div class="auth-footer">
-                <p>Already have an account? <a href="{{ url_for('login') }}">Login here</a></p>
-                <p><a href="{{ url_for('index') }}">Continue as Guest</a></p>
+                <p>Already have an account? <a href="{{ url_for('login') }}">Sign in</a></p>
+                <p><a href="{{ url_for('index') }}" style="color:var(--text-light);">Continue as Guest</a></p>
             </div>
         </div>
     </div>
 </div>
+{% endblock %}
 
+{% block scripts %}
 <script>
-document.querySelector('form').addEventListener('submit', function(e) {
-    const password = document.getElementById('password').value;
-    const confirmPassword = document.getElementById('confirm_password').value;
-    
-    if (password !== confirmPassword) {
+function togglePwd(inputId, btn) {
+    const inp = document.getElementById(inputId);
+    inp.type = inp.type === 'password' ? 'text' : 'password';
+    btn.textContent = inp.type === 'password' ? '👁️' : '🙈';
+}
+
+function checkStrength(val) {
+    const wrap = document.getElementById('strength-wrap');
+    const fill = document.getElementById('strength-fill');
+    const label = document.getElementById('strength-label');
+    wrap.style.display = val ? 'block' : 'none';
+    if (!val) return;
+
+    let score = 0;
+    if (val.length >= 6)   score++;
+    if (val.length >= 10)  score++;
+    if (/[A-Z]/.test(val)) score++;
+    if (/[0-9]/.test(val)) score++;
+    if (/[^A-Za-z0-9]/.test(val)) score++;
+
+    const levels = [
+        { w: '20%', color: '#EF5350', text: 'Too short' },
+        { w: '40%', color: '#FFA726', text: 'Weak' },
+        { w: '60%', color: '#FFC107', text: 'Fair' },
+        { w: '80%', color: '#66BB6A', text: 'Good' },
+        { w: '100%', color: '#00BFA5', text: 'Strong' }
+    ];
+    const lvl = levels[Math.min(score - 1, 4)] || levels[0];
+    fill.style.width = lvl.w;
+    fill.style.background = lvl.color;
+    label.textContent = lvl.text;
+    label.style.color = lvl.color;
+}
+
+// Inline confirm-password validation
+document.getElementById('confirm_password').addEventListener('input', function() {
+    const pwd = document.getElementById('password').value;
+    const match = this.value === pwd;
+    const feedback = document.getElementById('confirm-feedback');
+    this.classList.toggle('is-invalid', this.value.length > 0 && !match);
+    feedback.style.display = this.value.length > 0 && !match ? 'block' : 'none';
+});
+
+document.getElementById('reg-form').addEventListener('submit', function(e) {
+    const pwd = document.getElementById('password').value;
+    const confirm = document.getElementById('confirm_password').value;
+
+    if (pwd !== confirm) {
         e.preventDefault();
-        alert('Passwords do not match!');
-        return false;
+        document.getElementById('confirm_password').classList.add('is-invalid');
+        document.getElementById('confirm-feedback').style.display = 'block';
+        return;
     }
-    
-    if (password.length < 6) {
+    if (pwd.length < 6) {
         e.preventDefault();
-        alert('Password must be at least 6 characters long!');
-        return false;
+        if (window.showToast) showToast('Password must be at least 6 characters.', 'warning');
+        return;
     }
+
+    const btn = document.getElementById('reg-btn');
+    btn.textContent = 'Creating account…';
+    btn.disabled = true;
 });
 </script>
-{% endblock %} 
+{% endblock %}

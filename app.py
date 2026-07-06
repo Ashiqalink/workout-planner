@@ -181,6 +181,40 @@ def load_rest_times():
 # Load rest times at startup
 rest_times = load_rest_times()
 
+def get_today_session(user_id):
+    """Get the recommended training program session for today."""
+    try:
+        current_week = 1
+        if user_id != 'guest':
+            conn = get_db_connection()
+            progress = conn.execute('''
+                SELECT current_week 
+                FROM user_progress 
+                WHERE user_id = ? 
+                LIMIT 1
+            ''', (user_id,)).fetchone()
+            if progress:
+                current_week = progress['current_week']
+            conn.close()
+        else:
+            current_week = session.get('current_week', 1)
+            
+        current_day = datetime.now().strftime('%A')
+        
+        if training_data and 'program' in training_data:
+            for entry in training_data['program']:
+                if int(entry.get('Week', 1)) == int(current_week) and str(entry.get('Day', '')).strip().lower() == current_day.lower():
+                    return {
+                        'name': entry.get('Type'),
+                        'description': entry.get('Description') or f"Focus: {entry.get('Focus')}",
+                        'duration': entry.get('Duration'),
+                        'difficulty': entry.get('Intensity'),
+                        'focus': entry.get('Focus') or ''
+                    }
+    except Exception as e:
+        print(f"Error getting today's session: {e}")
+    return None
+
 @app.route('/')
 def index():
     """Main dashboard route."""
@@ -191,20 +225,31 @@ def index():
         session['streak'] = 0
         session['weekly_minutes'] = 0
         session['domain_progress'] = {
-            'strength': 0,
-            'speed': 0,
+            'strength_power': 0,
+            'speed_mobility': 0,
             'endurance': 0,
             'agility': 0,
-            'cognitive': 0
+            'cognition': 0
+        }
+    elif isinstance(session.get('domain_progress'), dict) and 'strength' in session['domain_progress']:
+        # Migrate old session keys if they exist
+        session['domain_progress'] = {
+            'strength_power': session['domain_progress'].get('strength_power', session['domain_progress'].get('strength', 0)),
+            'speed_mobility': session['domain_progress'].get('speed_mobility', session['domain_progress'].get('speed', 0)),
+            'endurance': session['domain_progress'].get('endurance', 0),
+            'agility': session['domain_progress'].get('agility', 0),
+            'cognition': session['domain_progress'].get('cognition', session['domain_progress'].get('cognitive', 0))
         }
 
     user_id = session.get('user_id')
     progress_data = get_user_progress_data(user_id)
     recent_sessions = progress_data.get('recent_sessions', [])
+    today_session = get_today_session(user_id)
 
     return render_template('index.html',
                          progress_data=progress_data,
-                         recent_sessions=recent_sessions)
+                         recent_sessions=recent_sessions,
+                         today_session=today_session)
 
 @app.route('/library')
 def library():
@@ -394,7 +439,7 @@ def api_complete_session():
 
         # For logged-in users, save to database
         conn = get_db_connection()
-        print(f"[DEBUG] Saving session for user_id={user_id}, data={data}")
+        # Save session record
         # Save session
         conn.execute('''
             INSERT INTO user_sessions (user_id, exercises_completed, total_duration, session_type)
@@ -443,6 +488,11 @@ def api_debug():
 def api_rest_times():
     """Get rest times for different categories and difficulty levels."""
     return jsonify({'rest_times': rest_times})
+
+@app.route('/api/health')
+def api_health():
+    """Health check endpoint."""
+    return jsonify({'status': 'ok', 'app': 'FitTrack', 'version': '2.0'})
 
 def get_domain_key(category):
     """Convert category to domain key."""
@@ -591,15 +641,33 @@ def get_user_progress_data(user_id):
         'cognition': domain_progress.get('cognition', {'sessions': 0, 'minutes': 0, 'week': 1, 'progress': 0})
     }
 
+    # Compute streak from consecutive session dates
+    streak = 0
+    if sessions:
+        today = datetime.now().date()
+        prev = today
+        for s in sessions:
+            try:
+                d = datetime.strptime(str(s['session_date']), '%Y-%m-%d').date()
+                if (prev - d).days <= 1:
+                    streak += 1
+                    prev = d
+                else:
+                    break
+            except Exception:
+                break
+
+    avg_length = round(total_minutes / total_sessions) if total_sessions > 0 else 0
+
     conn.close()
 
     return {
         'total_sessions': total_sessions,
         'total_minutes': total_minutes,
-        'current_streak': 0,  # Would need to calculate from session dates
-        'avg_session_length': total_minutes // total_sessions if total_sessions > 0 else 0,
-        'weekly_progress': [total_minutes, 0, 0, 0],  # 4 weeks of data
-        'recent_sessions': [dict(session) for session in sessions],
+        'current_streak': streak,
+        'avg_session_length': avg_length,
+        'weekly_progress': [total_minutes, 0, 0, 0],
+        'recent_sessions': [dict(s) for s in sessions],
         'strength': domains['strength_power'],
         'speed_mobility': domains['speed_mobility'],
         'endurance': domains['endurance'],
@@ -616,29 +684,22 @@ def update_user_progress(user_id, session_data, conn=None):
 
     # Update or insert domain progress based on domainProgress data
     domain_progress = session_data.get('domainProgress', {})
-    print(f"[DEBUG] update_user_progress for user_id={user_id}, domain_progress={domain_progress}")
-    
+
     for domain, progress_data in domain_progress.items():
-        print(f"[DEBUG] Domain: {domain}, Progress Data: {progress_data}")
         if progress_data.get('exercises', 0) > 0:
-            # Check if progress record exists
             existing = conn.execute('''
-                SELECT id, sessions_completed, total_minutes 
-                FROM user_progress 
-                WHERE user_id = ? AND domain = ?
+                SELECT id FROM user_progress WHERE user_id = ? AND domain = ?
             ''', (user_id, domain)).fetchone()
 
             if existing:
-                print(f"[DEBUG] Updating user_progress for user_id={user_id}, domain={domain}")
                 conn.execute('''
-                    UPDATE user_progress 
+                    UPDATE user_progress
                     SET sessions_completed = sessions_completed + ?,
                         total_minutes = total_minutes + ?,
                         last_session_date = CURRENT_DATE
                     WHERE user_id = ? AND domain = ?
                 ''', (progress_data.get('exercises', 0), progress_data.get('minutes', 0), user_id, domain))
             else:
-                print(f"[DEBUG] Inserting user_progress for user_id={user_id}, domain={domain}")
                 conn.execute('''
                     INSERT INTO user_progress (user_id, domain, sessions_completed, total_minutes, last_session_date)
                     VALUES (?, ?, ?, ?, CURRENT_DATE)
@@ -660,8 +721,8 @@ def login():
         user = conn.execute('''
             SELECT id, username, password_hash 
             FROM users 
-            WHERE username = ?
-        ''', (username,)).fetchone()
+            WHERE username = ? OR email = ?
+        ''', (username, username)).fetchone()
         conn.close()
 
         if user and check_password_hash(user['password_hash'], password):
@@ -684,14 +745,17 @@ def register():
 
         conn = get_db_connection()
 
-        # Check if username already exists
+        # Check if username or email already exists
         existing_user = conn.execute('''
-            SELECT id FROM users WHERE username = ?
-        ''', (username,)).fetchone()
+            SELECT id, username, email FROM users WHERE username = ? OR email = ?
+        ''', (username, email)).fetchone()
 
         if existing_user:
             conn.close()
-            flash('Username already exists', 'error')
+            if existing_user['username'] == username:
+                flash('Username already exists', 'error')
+            else:
+                flash('Email already exists', 'error')
             return render_template('register.html')
 
         # Create new user

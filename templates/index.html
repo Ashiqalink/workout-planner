@@ -1,79 +1,200 @@
 {% extends "base.html" %}
 
-{% block title %}Dashboard - Student Training System{% endblock %}
+{% block title %}Dashboard – FitTrack{% endblock %}
 
 {% block content %}
 <div class="dashboard">
+
+    <!-- Hero -->
     <div class="hero-section">
-        <h1>Welcome to Your Training Dashboard</h1>
-        <p class="subtitle">Track your progress and plan your next workout</p>
+        <p class="hero-greeting">👋 Welcome back{% if session.get('username') %}, <strong>{{ session.get('username') }}</strong>{% endif %}!</p>
+        <h1>Your Training Dashboard</h1>
+        <p class="subtitle">Track progress, plan sessions, and hit your goals.</p>
+        <div class="hero-actions">
+            <a href="{{ url_for('training_session') }}" class="btn-hero-primary">▶ Start Session</a>
+            <a href="{{ url_for('planner') }}" class="btn-hero-outline">Plan Workout</a>
+        </div>
+        <div class="hero-date">
+            <span class="day" id="hero-day"></span>
+            <span id="hero-date"></span>
+        </div>
     </div>
 
-    <div class="dashboard-grid">
-        <div class="card progress-overview">
-            <h2>📊 Progress Overview</h2>
-            <div class="progress-stats">
-                <div class="stat">
-                    <span class="stat-number">{{ progress_data.total_sessions }}</span>
-                    <span class="stat-label">Sessions Completed</span>
-                </div>
-                <div class="stat">
-                    <span class="stat-number">{{ progress_data.total_minutes }}</span>
-                    <span class="stat-label">Total Minutes</span>
-                </div>
-                <div class="stat">
-                    <span class="stat-number">{{ progress_data.current_streak }}</span>
-                    <span class="stat-label">Day Streak</span>
-                </div>
-            </div>
+    <!-- KPI Stats -->
+    <div class="stats-grid" style="animation-delay:0.05s">
+        <div class="stat-card" style="animation-delay:0.05s">
+            <h3>Sessions</h3>
+            <div class="stat-number">{{ progress_data.total_sessions }}</div>
+            <div class="stat-sub">completed</div>
+            <div class="stat-icon">🏋️</div>
         </div>
+        <div class="stat-card" style="animation-delay:0.1s">
+            <h3>Minutes</h3>
+            <div class="stat-number">{{ progress_data.total_minutes }}</div>
+            <div class="stat-sub">total training</div>
+            <div class="stat-icon">⏱️</div>
+        </div>
+        <div class="stat-card" style="animation-delay:0.15s">
+            <h3>Streak</h3>
+            <div class="stat-number">{{ progress_data.current_streak }}</div>
+            <div class="stat-sub">day streak</div>
+            <div class="stat-icon">🔥</div>
+        </div>
+        <div class="stat-card" style="animation-delay:0.2s">
+            <h3>Avg Session</h3>
+            <div class="stat-number">{{ progress_data.avg_session_length }}</div>
+            <div class="stat-sub">minutes</div>
+            <div class="stat-icon">📈</div>
+        </div>
+    </div>
 
-        <div class="card today-session">
-            <h2>🎯 Today's Session</h2>
+    <!-- Main grid -->
+    <div class="dashboard-grid">
+
+        <!-- Today's Session (left, wide) -->
+        <div class="today-session-card" style="animation-delay:0.2s">
+            <div class="section-heading">
+                <h2>🎯 Today's Session</h2>
+                <a href="{{ url_for('planner') }}">Custom plan →</a>
+            </div>
             {% if today_session %}
-                <div class="session-info">
-                    <h3>{{ today_session.name }}</h3>
-                    <p>{{ today_session.description }}</p>
-                    <div class="session-meta">
-                        <span>⏱️ {{ today_session.duration }} minutes</span>
-                        <span>💪 {{ today_session.difficulty }}</span>
-                    </div>
-                    <a href="{{ url_for('training_session') }}" class="btn btn-primary">Start Session</a>
+                <h3 style="font-family:var(--font-head);font-size:1.3rem;color:var(--text);margin-bottom:8px;">
+                    {{ today_session.name }}
+                </h3>
+                <p style="color:var(--text-muted);margin-bottom:14px;">{{ today_session.description }}</p>
+                <div class="session-meta-row">
+                    <span class="session-meta-chip">⏱️ {{ today_session.duration }} min</span>
+                    <span class="session-meta-chip">💪 {{ today_session.difficulty }}</span>
+                    {% if today_session.focus %}
+                    <span class="session-meta-chip">🎯 {{ today_session.focus }}</span>
+                    {% endif %}
                 </div>
+                <button id="start-today-btn"
+                    onclick="startTodaySession('{{ today_session.name }}', '{{ today_session.duration }}', '{{ today_session.difficulty }}', '{{ today_session.focus }}')"
+                    class="btn btn-primary">
+                    ▶ Start Session
+                </button>
             {% else %}
-                <p>No session planned for today. Create a custom workout!</p>
-                <a href="{{ url_for('planner') }}" class="btn btn-secondary">Plan Workout</a>
+                <p style="color:var(--text-muted);margin-bottom:16px;">No session planned for today. Create a custom workout!</p>
+                <a href="{{ url_for('planner') }}" class="btn btn-primary">Plan Workout</a>
             {% endif %}
         </div>
 
-        <div class="card quick-actions">
-            <h2>⚡ Quick Actions</h2>
-            <div class="action-buttons">
-                <a href="{{ url_for('library') }}" class="btn btn-outline">Browse Exercises</a>
-                <a href="{{ url_for('planner') }}" class="btn btn-outline">Create Workout</a>
-                <a href="{{ url_for('progress') }}" class="btn btn-outline">View Progress</a>
-                <a href="{{ url_for('training_session') }}" class="btn btn-primary">Start Training</a>
+        <!-- Quick Actions (right, narrow) -->
+        <div class="quick-actions-card" style="animation-delay:0.25s">
+            <div class="section-heading" style="margin-bottom:14px;">
+                <h2>⚡ Quick Actions</h2>
             </div>
+            <a href="{{ url_for('library') }}" class="quick-action-btn">
+                <span class="quick-action-icon">📚</span> Browse Exercises
+            </a>
+            <a href="{{ url_for('planner') }}" class="quick-action-btn">
+                <span class="quick-action-icon">📋</span> Plan Workout
+            </a>
+            <a href="{{ url_for('training_session') }}" class="quick-action-btn">
+                <span class="quick-action-icon">▶️</span> Start Session
+            </a>
+            <a href="{{ url_for('progress') }}" class="quick-action-btn">
+                <span class="quick-action-icon">📈</span> View Progress
+            </a>
+            {% if not session.get('username') %}
+            <div class="divider"></div>
+            <a href="{{ url_for('login') }}" class="btn btn-primary btn-full" style="margin-top:4px;">Login to Save Progress</a>
+            {% endif %}
         </div>
 
-        <div class="card recent-activity">
-            <h2>📈 Recent Activity</h2>
+        <!-- Recent Activity -->
+        <div class="card full-width" style="animation-delay:0.3s">
+            <div class="section-heading">
+                <h2>📅 Recent Activity</h2>
+                <a href="{{ url_for('progress') }}">See all →</a>
+            </div>
             {% if recent_sessions %}
                 <div class="activity-list">
-                    {% for session in recent_sessions %}
+                    {% for s in recent_sessions %}
                     <div class="activity-item">
-                        <div class="activity-date">{{ session.date }}</div>
-                        <div class="activity-details">
-                            <strong>{{ session.name }}</strong>
-                            <span>{{ session.duration }} minutes</span>
+                        <div class="activity-dot"></div>
+                        <div style="flex:1;min-width:0;">
+                            <div class="activity-name">{{ s.session_type }}</div>
                         </div>
+                        <span class="badge badge-primary">{{ s.total_duration }} min</span>
+                        <div class="activity-date">{{ s.session_date }}</div>
                     </div>
                     {% endfor %}
                 </div>
             {% else %}
-                <p>No recent sessions. Start your first workout!</p>
+                <div class="no-sessions">
+                    <div style="font-size:2rem;margin-bottom:10px;">🏃</div>
+                    <p>No sessions yet. Start your first workout!</p>
+                </div>
             {% endif %}
         </div>
+
     </div>
 </div>
-{% endblock %} 
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Hero date
+(function() {
+    const d = new Date();
+    const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const heroDay = document.getElementById('hero-day');
+    const heroDate = document.getElementById('hero-date');
+    if (heroDay) heroDay.textContent = days[d.getDay()];
+    if (heroDate) heroDate.textContent = months[d.getMonth()] + ' ' + d.getDate();
+})();
+
+function startTodaySession(type, duration, intensity, focus) {
+    const btn = document.getElementById('start-today-btn');
+    if (btn) { btn.textContent = 'Generating…'; btn.disabled = true; }
+
+    let difficulty = 'beginner';
+    if (intensity.toLowerCase().includes('high') || intensity.toLowerCase().includes('max')) {
+        difficulty = 'advanced';
+    } else if (intensity.toLowerCase().includes('moderate')) {
+        difficulty = 'intermediate';
+    }
+
+    let domains = [];
+    const lowerType = type.toLowerCase();
+    const lowerFocus = focus.toLowerCase();
+    if (lowerType.includes('strength') || lowerFocus.includes('upper') || lowerFocus.includes('lower') || lowerFocus.includes('strength')) domains.push('Strength');
+    if (lowerType.includes('speed') || lowerType.includes('mobility') || lowerFocus.includes('flexibility') || lowerFocus.includes('mobility')) domains.push('Speed & Mobility');
+    if (lowerType.includes('endurance') || lowerFocus.includes('cardio') || lowerFocus.includes('endurance')) domains.push('Endurance');
+    if (lowerType.includes('agility') || lowerFocus.includes('coordination') || lowerFocus.includes('agility')) domains.push('Agility');
+    if (lowerType.includes('cognitive') || lowerFocus.includes('cognitive') || lowerFocus.includes('mental')) domains.push('Cognitive');
+    if (domains.length === 0) domains = ['Strength', 'Speed & Mobility', 'Endurance', 'Agility', 'Cognitive'];
+
+    let apiFocus = '';
+    if (lowerFocus.includes('upper')) apiFocus = 'upper_body';
+    else if (lowerFocus.includes('lower')) apiFocus = 'lower_body';
+    else if (lowerFocus.includes('core')) apiFocus = 'core';
+    else if (lowerFocus.includes('cardio')) apiFocus = 'cardio';
+    else if (lowerFocus.includes('flexibility') || lowerFocus.includes('stretch')) apiFocus = 'flexibility';
+
+    fetch('/api/generate-workout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ domains, duration: parseInt(duration) || 15, difficulty, focus: apiFocus })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            data.sessionType = type;
+            sessionStorage.setItem('currentWorkout', JSON.stringify(data));
+            window.location.href = '/session';
+        } else {
+            if (window.showToast) showToast('Error: ' + (data.error || 'Could not generate workout'), 'error');
+            if (btn) { btn.textContent = '▶ Start Session'; btn.disabled = false; }
+        }
+    })
+    .catch(() => {
+        if (window.showToast) showToast('Network error. Please try again.', 'error');
+        if (btn) { btn.textContent = '▶ Start Session'; btn.disabled = false; }
+    });
+}
+</script>
+{% endblock %}

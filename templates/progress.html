@@ -1,146 +1,132 @@
 {% extends "base.html" %}
 
-{% block title %}Progress Tracking - Student Training System{% endblock %}
+{% block title %}Progress – FitTrack{% endblock %}
 
 {% block content %}
 <div class="progress-page">
+
     <div class="page-header">
+        <div class="breadcrumb"><a href="{{ url_for('index') }}">Home</a> › Progress</div>
         <h1>📈 Progress Tracking</h1>
-        <p>Monitor your training progress across all domains</p>
+        <p>Monitor your training across all 5 domains</p>
     </div>
 
-    <div class="progress-overview">
-        <div class="stats-grid">
-            <div class="stat-card">
-                <h3>Total Sessions</h3>
-                <div class="stat-number">{{ progress_data.total_sessions or 0 }}</div>
+    <!-- KPI Stats -->
+    <div class="stats-grid">
+        <div class="stat-card">
+            <h3>Sessions</h3>
+            <div class="stat-number">{{ progress_data.total_sessions or 0 }}</div>
+            <div class="stat-sub">completed</div>
+            <div class="stat-icon">🏋️</div>
+        </div>
+        <div class="stat-card">
+            <h3>Minutes</h3>
+            <div class="stat-number">{{ progress_data.total_minutes or 0 }}</div>
+            <div class="stat-sub">total training</div>
+            <div class="stat-icon">⏱️</div>
+        </div>
+        <div class="stat-card">
+            <h3>Streak</h3>
+            <div class="stat-number">{{ progress_data.current_streak or 0 }}</div>
+            <div class="stat-sub">day streak 🔥</div>
+            <div class="stat-icon">🔥</div>
+        </div>
+        <div class="stat-card">
+            <h3>Avg Session</h3>
+            <div class="stat-number">{{ progress_data.avg_session_length or 0 }}</div>
+            <div class="stat-sub">minutes</div>
+            <div class="stat-icon">📊</div>
+        </div>
+    </div>
+
+    <!-- Charts -->
+    <div class="charts-grid">
+        <div class="chart-card">
+            <h2>Domain Distribution</h2>
+            <div class="chart-container-inner">
+                <canvas id="domainChart"></canvas>
             </div>
-            <div class="stat-card">
-                <h3>Total Minutes</h3>
-                <div class="stat-number">{{ progress_data.total_minutes or 0 }}</div>
-            </div>
-            <div class="stat-card">
-                <h3>Current Streak</h3>
-                <div class="stat-number">{{ progress_data.current_streak or 0 }} days</div>
-            </div>
-            <div class="stat-card">
-                <h3>Average Session</h3>
-                <div class="stat-number">{{ progress_data.avg_session_length or 0 }} min</div>
+        </div>
+        <div class="chart-card">
+            <h2>Weekly Activity</h2>
+            <div class="chart-container-inner">
+                <canvas id="weeklyChart"></canvas>
             </div>
         </div>
     </div>
 
-    <div class="charts-section">
-        <div class="chart-container">
-            <h2>Training Distribution by Domain</h2>
-            <canvas id="domainChart" width="400" height="200"></canvas>
+    <!-- Domain Progress Cards -->
+    <div class="section-heading" style="margin-bottom:16px;">
+        <h2>💪 Domain Breakdown</h2>
+    </div>
+    <div class="domain-cards-grid">
+        {% set domains = [
+            ('strength',      '💪', 'Strength'),
+            ('speed_mobility','⚡', 'Speed & Mobility'),
+            ('endurance',     '🏃', 'Endurance'),
+            ('agility',       '🤸', 'Agility'),
+            ('cognitive',     '🧠', 'Cognitive')
+        ] %}
+        {% for key, icon, label in domains %}
+        {% set d = progress_data[key] if progress_data[key] is defined else {} %}
+        <div class="domain-progress-card">
+            <h3>{{ icon }} {{ label }}</h3>
+            <div class="domain-stats">
+                <span class="domain-stat">Sessions: <span>{{ d.sessions or 0 }}</span></span>
+                <span class="domain-stat">Minutes: <span>{{ d.minutes or 0 }}</span></span>
+            </div>
+            <div class="progress-bar progress-bar-lg">
+                <div class="progress-fill animated" style="--target-w:{{ [d.progress or 0, 100] | min }}%;width:{{ [d.progress or 0, 100] | min }}%"></div>
+            </div>
+            <div style="font-size:0.78rem;color:var(--text-light);margin-top:5px;text-align:right;">
+                Week {{ d.week or 1 }} of program
+            </div>
         </div>
-        
-        <div class="chart-container">
-            <h2>Weekly Progress</h2>
-            <canvas id="weeklyChart" width="400" height="200"></canvas>
-        </div>
+        {% endfor %}
     </div>
 
-    <div class="domain-progress">
-        <h2>Domain-Specific Progress</h2>
-        <div class="domain-cards">
-            <div class="domain-card">
-                <h3>💪 Strength</h3>
-                <div class="domain-stats">
-                    <p>Sessions: {{ progress_data.strength.sessions or 0 }}</p>
-                    <p>Minutes: {{ progress_data.strength.minutes or 0 }}</p>
-                    <p>Week: {{ progress_data.strength.week or 1 }}</p>
-                </div>
-                <div class="progress-bar">
-                    <div class="progress-fill" style="width: {{ progress_data.strength.progress or 0 }}%"></div>
-                </div>
-            </div>
-            
-            <div class="domain-card">
-                <h3>⚡ Speed & Mobility</h3>
-                <div class="domain-stats">
-                    <p>Sessions: {{ progress_data.speed_mobility.sessions or 0 }}</p>
-                    <p>Minutes: {{ progress_data.speed_mobility.minutes or 0 }}</p>
-                    <p>Week: {{ progress_data.speed_mobility.week or 1 }}</p>
-                </div>
-                <div class="progress-bar">
-                    <div class="progress-fill" style="width: {{ progress_data.speed_mobility.progress or 0 }}%"></div>
-                </div>
-            </div>
-            
-            <div class="domain-card">
-                <h3>🏃 Endurance</h3>
-                <div class="domain-stats">
-                    <p>Sessions: {{ progress_data.endurance.sessions or 0 }}</p>
-                    <p>Minutes: {{ progress_data.endurance.minutes or 0 }}</p>
-                    <p>Week: {{ progress_data.endurance.week or 1 }}</p>
-                </div>
-                <div class="progress-bar">
-                    <div class="progress-fill" style="width: {{ progress_data.endurance.progress or 0 }}%"></div>
-                </div>
-            </div>
-            
-            <div class="domain-card">
-                <h3>🤸 Agility</h3>
-                <div class="domain-stats">
-                    <p>Sessions: {{ progress_data.agility.sessions or 0 }}</p>
-                    <p>Minutes: {{ progress_data.agility.minutes or 0 }}</p>
-                    <p>Week: {{ progress_data.agility.week or 1 }}</p>
-                </div>
-                <div class="progress-bar">
-                    <div class="progress-fill" style="width: {{ progress_data.agility.progress or 0 }}%"></div>
-                </div>
-            </div>
-            
-            <div class="domain-card">
-                <h3>🧠 Cognitive</h3>
-                <div class="domain-stats">
-                    <p>Sessions: {{ progress_data.cognitive.sessions or 0 }}</p>
-                    <p>Minutes: {{ progress_data.cognitive.minutes or 0 }}</p>
-                    <p>Week: {{ progress_data.cognitive.week or 1 }}</p>
-                </div>
-                <div class="progress-bar">
-                    <div class="progress-fill" style="width: {{ progress_data.cognitive.progress or 0 }}%"></div>
-                </div>
-            </div>
-        </div>
+    <!-- Recent Sessions -->
+    <div class="section-heading" style="margin:28px 0 16px;">
+        <h2>📅 Recent Sessions</h2>
     </div>
-
-    <div class="recent-sessions">
-        <h2>Recent Training Sessions</h2>
+    {% if recent_sessions %}
         <div class="sessions-list">
-            {% if recent_sessions %}
-                {% for session in recent_sessions %}
-                <div class="session-item">
-                    <div class="session-date">{{ session.session_date or 'Unknown' }}</div>
-                    <div class="session-details">
-                        <h4>{{ session.session_type or 'Custom Workout' }}</h4>
-                        <p>{{ session.total_duration or 0 }} minutes</p>
-                    </div>
-                    <div class="session-status completed">
-                        Completed
-                    </div>
+            {% for s in recent_sessions %}
+            <div class="session-item">
+                <div class="session-date">{{ s.session_date or '—' }}</div>
+                <div class="session-details">
+                    <h4>{{ s.session_type or 'Custom Workout' }}</h4>
+                    <p>{{ s.total_duration or 0 }} minutes</p>
                 </div>
-                {% endfor %}
-            {% else %}
-                <p class="no-sessions">No training sessions recorded yet. Start your first workout!</p>
-            {% endif %}
+                <div class="session-status">Completed</div>
+            </div>
+            {% endfor %}
         </div>
-    </div>
+    {% else %}
+        <div class="no-sessions">
+            <div style="font-size:2rem;margin-bottom:10px;">🏃</div>
+            <p>No sessions recorded yet. <a href="{{ url_for('training_session') }}">Start your first workout →</a></p>
+        </div>
+    {% endif %}
+
 </div>
+{% endblock %}
 
-<!-- Chart.js Library -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
+{% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // Domain distribution chart
-    const domainCtx = document.getElementById('domainChart').getContext('2d');
-    new Chart(domainCtx, {
+    Chart.defaults.font.family = "'Inter', system-ui, sans-serif";
+    Chart.defaults.color = '#5A7775';
+
+    const teal = '#00BFA5';
+    const colors = ['#EF5350','#00BFA5','#29B6F6','#FFA726','#9C27B0'];
+
+    // Domain doughnut
+    const dCtx = document.getElementById('domainChart').getContext('2d');
+    new Chart(dCtx, {
         type: 'doughnut',
         data: {
-            labels: ['Strength', 'Speed & Mobility', 'Endurance', 'Agility', 'Cognitive'],
+            labels: ['Strength','Speed & Mobility','Endurance','Agility','Cognitive'],
             datasets: [{
                 data: [
                     {{ progress_data.strength.minutes or 0 }},
@@ -149,48 +135,62 @@ document.addEventListener('DOMContentLoaded', function() {
                     {{ progress_data.agility.minutes or 0 }},
                     {{ progress_data.cognitive.minutes or 0 }}
                 ],
-                backgroundColor: [
-                    '#FF6B6B',
-                    '#4ECDC4',
-                    '#45B7D1',
-                    '#96CEB4',
-                    '#FFEAA7'
-                ]
+                backgroundColor: colors,
+                borderWidth: 2,
+                borderColor: '#fff'
             }]
         },
         options: {
-            responsive: true,
+            responsive: true, maintainAspectRatio: false,
+            cutout: '65%',
             plugins: {
-                legend: {
-                    position: 'bottom'
-                }
+                legend: { position: 'bottom', labels: { padding: 12, boxWidth: 12, font: { size: 12 } } }
             }
         }
     });
 
-    // Weekly progress chart
-    const weeklyCtx = document.getElementById('weeklyChart').getContext('2d');
-    new Chart(weeklyCtx, {
+    // Weekly line chart
+    const wCtx = document.getElementById('weeklyChart').getContext('2d');
+    new Chart(wCtx, {
         type: 'line',
         data: {
-            labels: ['Week 1', 'Week 2', 'Week 3', 'Week 4'],
+            labels: ['Week 1','Week 2','Week 3','Week 4'],
             datasets: [{
-                label: 'Total Minutes',
+                label: 'Minutes trained',
                 data: [{{ progress_data.weekly_progress|join(', ') if progress_data.weekly_progress else '0, 0, 0, 0' }}],
-                borderColor: '#4ECDC4',
-                backgroundColor: 'rgba(78, 205, 196, 0.1)',
+                borderColor: teal,
+                backgroundColor: 'rgba(0,191,165,0.1)',
+                borderWidth: 2.5,
+                pointBackgroundColor: teal,
+                pointRadius: 4,
+                pointHoverRadius: 6,
+                fill: true,
                 tension: 0.4
             }]
         },
         options: {
-            responsive: true,
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
             scales: {
-                y: {
-                    beginAtZero: true
-                }
+                x: { grid: { color: 'rgba(0,0,0,0.04)' } },
+                y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.04)' } }
             }
         }
     });
+
+    // Animate progress bars on scroll into view
+    const observer = new IntersectionObserver(entries => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                const fill = entry.target;
+                const w = fill.style.width;
+                fill.style.width = '0%';
+                requestAnimationFrame(() => { fill.style.width = w; });
+                observer.unobserve(fill);
+            }
+        });
+    }, { threshold: 0.1 });
+    document.querySelectorAll('.progress-fill.animated').forEach(el => observer.observe(el));
 });
 </script>
-{% endblock %} 
+{% endblock %}

@@ -1,58 +1,88 @@
 {% extends "base.html" %}
 
-{% block title %}Training Planner - Student Training System{% endblock %}
+{% block title %}Training Planner – FitTrack{% endblock %}
 
 {% block content %}
 <div class="planner-page">
+
     <div class="page-header">
+        <div class="breadcrumb"><a href="{{ url_for('index') }}">Home</a> › Planner</div>
         <h1>📋 Training Planner</h1>
-        <p>Create custom workouts tailored to your goals and schedule</p>
+        <p>Create a custom workout tailored to your goals and available time</p>
     </div>
 
-    <div class="planner-container">
-        <div class="planner-form">
-            <h2>Create Your Workout</h2>
+    <div class="planner-layout">
+
+        <!-- Form Panel -->
+        <div class="card" style="padding:32px;">
+            <h2
+                style="font-family:var(--font-head);font-size:1.2rem;font-weight:700;color:var(--text);margin-bottom:24px;">
+                Build Your Workout</h2>
+
             <form id="workout-form">
+                <!-- Domain icon-cards -->
                 <div class="form-group">
-                    <label for="domains">Training Domains:</label>
-                    <div class="checkbox-group">
-                        <label><input type="checkbox" name="domains" value="Strength"> 💪 Strength</label>
-                        <label><input type="checkbox" name="domains" value="Speed & Mobility"> ⚡ Speed & Mobility</label>
-                        <label><input type="checkbox" name="domains" value="Endurance"> 🏃 Endurance</label>
-                        <label><input type="checkbox" name="domains" value="Agility"> 🤸 Agility</label>
-                        <label><input type="checkbox" name="domains" value="Cognitive"> 🧠 Cognitive</label>
+                    <label style="margin-bottom:12px;display:block;">Training Domains <span
+                            style="font-weight:400;color:var(--text-muted)">(select all that apply)</span></label>
+                    <div class="domain-cards">
+                        <label class="domain-card" id="dc-strength">
+                            <input type="checkbox" name="domains" value="Strength">
+                            <div class="domain-card-label">Strength</div>
+                            <div class="domain-tick hidden">✓</div>
+                        </label>
+                        <label class="domain-card" id="dc-speed">
+                            <input type="checkbox" name="domains" value="Speed & Mobility">
+                            <div class="domain-card-label">Speed</div>
+                            <div class="domain-tick hidden">✓</div>
+                        </label>
+                        <label class="domain-card" id="dc-endurance">
+                            <input type="checkbox" name="domains" value="Endurance">
+                            <div class="domain-card-label">Endurance</div>
+                            <div class="domain-tick hidden">✓</div>
+                        </label>
+                        <label class="domain-card" id="dc-agility">
+                            <input type="checkbox" name="domains" value="Agility">
+                            <div class="domain-card-label">Agility</div>
+                            <div class="domain-tick hidden">✓</div>
+                        </label>
+                        <label class="domain-card" id="dc-cognitive">
+                            <input type="checkbox" name="domains" value="Cognitive">
+                            <div class="domain-card-label">Cognitive</div>
+                            <div class="domain-tick hidden">✓</div>
+                        </label>
                     </div>
                 </div>
 
+                <!-- Duration slider -->
                 <div class="form-group">
-                    <label for="duration">Available Time:</label>
-                    <select id="duration" name="duration" required>
-                        <option value="">Select duration</option>
-                        <option value="5">5 minutes</option>
-                        <option value="10">10 minutes</option>
-                        <option value="15">15 minutes</option>
-                        <option value="20">20 minutes</option>
-                        <option value="25">25 minutes</option>
-                        <option value="30">30 minutes</option>
-                        <option value="35">35 minutes</option>
-                        <option value="40">40 minutes</option>
-                        <option value="45">45 minutes</option>
+                    <label>Duration</label>
+                    <div class="duration-display">
+                        <span class="duration-value" id="duration-val">20</span>
+                        <span class="duration-unit">min</span>
+                    </div>
+                    <div class="range-slider">
+                        <input type="range" id="duration" name="duration" min="5" max="60" step="5" value="20"
+                            oninput="document.getElementById('duration-val').textContent=this.value">
+                        <div class="range-label"><span>5 min</span><span>60 min</span></div>
+                    </div>
+                </div>
+
+                <!-- Difficulty -->
+                <div class="form-group">
+                    <label for="difficulty">Difficulty Level</label>
+                    <select id="difficulty" name="difficulty" class="form-control" required>
+                        <option value="">Select level</option>
+                        <option value="beginner">🟢 Beginner</option>
+                        <option value="intermediate">🟡 Intermediate</option>
+                        <option value="advanced">🔴 Advanced</option>
                     </select>
                 </div>
 
+                <!-- Focus area -->
                 <div class="form-group">
-                    <label for="difficulty">Difficulty Level:</label>
-                    <select id="difficulty" name="difficulty" required>
-                        <option value="">Select difficulty</option>
-                        <option value="Beginner">Beginner</option>
-                        <option value="Intermediate">Intermediate</option>
-                        <option value="Advanced">Advanced</option>
-                    </select>
-                </div>
-
-                <div class="form-group">
-                    <label for="focus">Focus Area (Optional):</label>
-                    <select id="focus" name="focus">
+                    <label for="focus">Focus Area <span
+                            style="font-weight:400;color:var(--text-muted)">(optional)</span></label>
+                    <select id="focus" name="focus" class="form-control">
                         <option value="">No specific focus</option>
                         <option value="upper_body">Upper Body</option>
                         <option value="lower_body">Lower Body</option>
@@ -62,118 +92,136 @@
                     </select>
                 </div>
 
-                <button type="submit" class="btn btn-primary">Generate Workout</button>
+                <button type="submit" class="btn btn-primary btn-full" id="generate-btn">
+                    ⚡ Generate Workout
+                </button>
             </form>
         </div>
 
-        <div class="workout-preview" id="workout-preview" style="display: none;">
-            <h2>Your Custom Workout</h2>
-            <div class="workout-summary">
-                <div class="summary-stats">
-                    <div class="stat">
-                        <span class="stat-number" id="total-exercises">0</span>
-                        <span class="stat-label">Exercises</span>
-                    </div>
-                    <div class="stat">
-                        <span class="stat-number" id="total-duration">0</span>
-                        <span class="stat-label">Minutes</span>
-                    </div>
-                    <div class="stat">
-                        <span class="stat-number" id="workout-difficulty">-</span>
-                        <span class="stat-label">Difficulty</span>
-                    </div>
+        <!-- Preview Panel -->
+        <div id="workout-preview" class="workout-preview-panel hidden">
+            <div class="section-heading" style="margin-bottom:20px;">
+                <h2 style="font-family:var(--font-head);font-size:1.15rem;font-weight:700;">Your Workout</h2>
+                <button class="btn btn-sm btn-ghost" onclick="regenerateWorkout()">↺ Regenerate</button>
+            </div>
+
+            <div class="workout-preview-stats">
+                <div class="wp-stat">
+                    <div class="wp-stat-number" id="total-exercises">0</div>
+                    <div class="wp-stat-label">Exercises</div>
+                </div>
+                <div class="wp-stat">
+                    <div class="wp-stat-number" id="total-duration">0</div>
+                    <div class="wp-stat-label">Minutes</div>
+                </div>
+                <div class="wp-stat">
+                    <div class="wp-stat-number" id="workout-difficulty">—</div>
+                    <div class="wp-stat-label">Level</div>
                 </div>
             </div>
-            
-            <div class="exercises-list" id="exercises-list">
-                <!-- Generated exercises will appear here -->
-            </div>
 
-            <div class="workout-actions">
-                <button class="btn btn-secondary" onclick="regenerateWorkout()">Regenerate</button>
-                <button class="btn btn-primary" onclick="startWorkout()">Start Workout</button>
-            </div>
+            <div class="exercises-list" id="exercises-list"></div>
+
+            <button class="btn btn-primary btn-full" onclick="startWorkout()">▶ Start Workout</button>
         </div>
+
+        <!-- Placeholder when no workout generated yet -->
+        <div id="preview-placeholder" class="card-flat"
+            style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:260px;text-align:center;color:var(--text-muted);gap:12px;">
+            <div style="font-size:2.5rem;">📋</div>
+            <p>Configure your workout on the left<br>and click <strong>Generate</strong> to see a preview</p>
+        </div>
+
     </div>
 </div>
-
+{% endblock %}
+{% block scripts %}
 <script>
-document.getElementById('workout-form').addEventListener('submit', function(e) {
-    e.preventDefault();
-    plannerGenerateWorkout();
-});
+    // Domain card toggle
+    document.querySelectorAll('.domain-card').forEach(card => {
+        const cb = card.querySelector('input[type="checkbox"]');
+        const tick = card.querySelector('.domain-tick');
+        cb.addEventListener('change', function () {
+            card.classList.toggle('selected', this.checked);
+            if (tick) tick.classList.toggle('hidden', !this.checked);
+        });
+        card.addEventListener('click', function (e) {
+            if (e.target === cb) return;
+        });
+    });
 
-function plannerGenerateWorkout() {
-    const formData = new FormData(document.getElementById('workout-form'));
-    const data = {
-        domains: Array.from(formData.getAll('domains')),
-        duration: formData.get('duration'),
-        difficulty: formData.get('difficulty'),
-        focus: formData.get('focus')
-    };
+    document.getElementById('workout-form').addEventListener('submit', function (e) {
+        e.preventDefault();
+        plannerGenerateWorkout();
+    });
 
-    if (data.domains.length === 0) {
-        alert('Please select at least one training domain.');
-        return;
+    function plannerGenerateWorkout() {
+        const btn = document.getElementById('generate-btn');
+        const domains = Array.from(document.querySelectorAll('input[name="domains"]:checked')).map(c => c.value);
+        const duration = parseInt(document.getElementById('duration').value);
+        const difficulty = document.getElementById('difficulty').value;
+        const focus = document.getElementById('focus').value;
+
+        if (domains.length === 0) {
+            if (window.showToast) showToast('Select at least one training domain.', 'warning');
+            return;
+        }
+        if (!difficulty) {
+            if (window.showToast) showToast('Please select a difficulty level.', 'warning');
+            return;
+        }
+
+        btn.textContent = 'Generating…';
+        btn.disabled = true;
+
+        fetch('/api/generate-workout', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ domains, duration, difficulty, focus })
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    displayWorkout(data);
+                } else {
+                    if (window.showToast) showToast('Error: ' + (data.error || 'Unknown'), 'error');
+                }
+            })
+            .catch(() => { if (window.showToast) showToast('Network error. Try again.', 'error'); })
+            .finally(() => { btn.textContent = '⚡ Generate Workout'; btn.disabled = false; });
     }
 
-    fetch('/api/generate-workout', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(data)
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            displayWorkout(data);
-        } else {
-            alert('Error generating workout: ' + (data.error || 'Unknown error'));
-        }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        alert('Error generating workout. Please try again.');
-    });
-}
+    function displayWorkout(workout) {
+        document.getElementById('preview-placeholder').style.display = 'none';
+        const preview = document.getElementById('workout-preview');
+        preview.classList.remove('hidden');
 
-function displayWorkout(workout) {
-    document.getElementById('workout-preview').style.display = 'block';
-    document.getElementById('total-exercises').textContent = workout.exercises.length;
-    document.getElementById('total-duration').textContent = workout.total_duration;
-    document.getElementById('workout-difficulty').textContent = workout.difficulty || 'Not specified';
+        document.getElementById('total-exercises').textContent = workout.exercises.length;
+        document.getElementById('total-duration').textContent = workout.total_duration;
+        const diffMap = { beginner: '🟢', intermediate: '🟡', advanced: '🔴' };
+        const dKey = (workout.difficulty || '').toLowerCase();
+        document.getElementById('workout-difficulty').textContent = (diffMap[dKey] || '') + ' ' + (workout.difficulty || '—');
 
-    const exercisesList = document.getElementById('exercises-list');
-    exercisesList.innerHTML = '';
-
-    workout.exercises.forEach((exercise, index) => {
-        const exerciseItem = document.createElement('div');
-        exerciseItem.className = 'exercise-item';
-        exerciseItem.innerHTML = `
-            <div class="exercise-number">${index + 1}</div>
+        const list = document.getElementById('exercises-list');
+        list.innerHTML = '';
+        workout.exercises.forEach((ex, i) => {
+            const item = document.createElement('div');
+            item.className = 'exercise-item';
+            item.innerHTML = `
+            <div class="exercise-number">${i + 1}</div>
             <div class="exercise-info">
-                <h4>${exercise.name}</h4>
-                <p>${exercise.category} • ${Math.round(exercise.duration * 60)} seconds</p>
-                <p class="exercise-description">${exercise.description}</p>
+                <h4>${ex.name}</h4>
+                <p>${ex.category} &bull; ${Math.round(ex.duration * 60)}s</p>
             </div>
-            <div class="exercise-category">
-                <span class="category-badge ${exercise.category.toLowerCase().replace(' & ', '-')}">${exercise.category}</span>
-            </div>
+            <span class="badge badge-primary">${ex.difficulty}</span>
         `;
-        exercisesList.appendChild(exerciseItem);
-    });
+            list.appendChild(item);
+        });
 
-    // Store workout in session storage for the session page
-    sessionStorage.setItem('currentWorkout', JSON.stringify(workout));
-}
+        sessionStorage.setItem('currentWorkout', JSON.stringify(workout));
+    }
 
-function regenerateWorkout() {
-    plannerGenerateWorkout();
-}
-
-function startWorkout() {
-    window.location.href = '/session';
-}
+    function regenerateWorkout() { plannerGenerateWorkout(); }
+    function startWorkout() { window.location.href = '/session'; }
 </script>
-{% endblock %} 
+{% endblock %}
