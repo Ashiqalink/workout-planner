@@ -68,7 +68,7 @@
         ] %}
         {% for key, icon, label in domains %}
         {% set d = progress_data[key] if progress_data[key] is defined else {} %}
-        <div class="domain-card slide-up">
+        <div class="domain-progress-card slide-up">
             <div class="domain-header">
                 <span class="domain-icon"><i class="icon-2xl icon-primary" data-lucide="{{ icon }}" ></i></span>
                 <h3>{{ label }}</h3>

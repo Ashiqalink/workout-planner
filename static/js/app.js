@@ -4,6 +4,13 @@
 let currentUser = null;
 let exercises = [];
 
+// XSS-safe HTML escaping utility
+function escapeHtml(str) {
+    if (!str) return '';
+    const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+    return String(str).replace(/[&<>"']/g, c => map[c]);
+}
+
 // Initialize application
 document.addEventListener('DOMContentLoaded', function() {
     initializeApp();
@@ -113,26 +120,27 @@ function hideTooltip(e) {
     }
 }
 
-// Loading states
+// Loading states — only for buttons that opt in via data-loading
 function addLoadingStates() {
-    const buttons = document.querySelectorAll('.btn');
+    const buttons = document.querySelectorAll('.btn[data-loading]');
     
     buttons.forEach(button => {
         button.addEventListener('click', function() {
-            if (this.type === 'submit' || this.classList.contains('loading')) {
+            if (this.classList.contains('loading')) {
                 return;
             }
             
-            const originalText = this.textContent;
-            this.textContent = 'Loading...';
+            const originalHTML = this.innerHTML;
+            this.innerHTML = 'Loading...';
             this.classList.add('loading');
             this.disabled = true;
             
             // Reset after 3 seconds (fallback)
             setTimeout(() => {
-                this.textContent = originalText;
+                this.innerHTML = originalHTML;
                 this.classList.remove('loading');
                 this.disabled = false;
+                if (typeof lucide !== 'undefined') lucide.createIcons({ root: this });
             }, 3000);
         });
     });
@@ -196,44 +204,6 @@ async function saveSession(sessionData) {
         return data;
     } catch (error) {
         console.error('Failed to save session:', error);
-        throw error;
-    }
-}
-
-// Progress tracking
-async function getProgressData() {
-    try {
-        const data = await apiRequest('/api/progress');
-        return data;
-    } catch (error) {
-        console.error('Failed to load progress data:', error);
-        return null;
-    }
-}
-
-// User authentication
-async function loginUser(credentials) {
-    try {
-        const data = await apiRequest('/api/login', {
-            method: 'POST',
-            body: JSON.stringify(credentials)
-        });
-        return data;
-    } catch (error) {
-        console.error('Login failed:', error);
-        throw error;
-    }
-}
-
-async function registerUser(userData) {
-    try {
-        const data = await apiRequest('/api/register', {
-            method: 'POST',
-            body: JSON.stringify(userData)
-        });
-        return data;
-    } catch (error) {
-        console.error('Registration failed:', error);
         throw error;
     }
 }
@@ -339,9 +309,6 @@ window.TrainingApp = {
     loadExercises,
     generateWorkout,
     saveSession,
-    getProgressData,
-    loginUser,
-    registerUser,
     formatTime,
     formatDate,
     showNotification,

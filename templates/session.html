@@ -55,7 +55,7 @@
                 <div class="timer-ring-wrap">
                     <svg class="timer-ring-svg" viewBox="0 0 180 180">
                         <circle class="timer-ring-bg" cx="90" cy="90" r="80"></circle>
-                        <circle class="timer-ring-fill" cx="90" cy="80" r="80" id="ring-fill"
+                        <circle class="timer-ring-fill" cx="90" cy="90" r="80" id="ring-fill"
                             style="stroke-dasharray:502;stroke-dashoffset:0;"></circle>
                     </svg>
                     <div class="timer-center">
@@ -79,7 +79,7 @@
                     <div class="timer-ring-wrap">
                         <svg class="timer-ring-svg" viewBox="0 0 180 180">
                             <circle class="timer-ring-bg" cx="90" cy="90" r="80"></circle>
-                            <circle class="timer-ring-fill rest-ring" cx="90" cy="80" r="80" id="rest-ring-fill"
+                            <circle class="timer-ring-fill rest-ring" cx="90" cy="90" r="80" id="rest-ring-fill"
                                 style="stroke-dasharray:502;stroke-dashoffset:0;"></circle>
                         </svg>
                         <div class="timer-center">
@@ -93,34 +93,34 @@
                 </div>
             </div>
 
-            <!-- Completion screen (hidden) -->
-            <div class="session-complete-card hidden" id="complete-screen">
-                <i class="icon-6xl icon-primary" data-lucide="award" style="margin-bottom:10px;"></i>
-                <div class="completion-title">Session Complete!</div>
-                <p class="completion-sub" id="complete-sub">Great job. Keep it up!</p>
-                <div class="completion-stats">
-                    <div class="completion-stat">
-                        <span class="stat-number" id="completed-exercises">0</span>
-                        <span class="stat-label">Exercises</span>
-                    </div>
-                    <div class="completion-stat">
-                        <span class="stat-number" id="total-time">0</span>
-                        <span class="stat-label">Minutes</span>
-                    </div>
-                    <div class="completion-stat">
-                        <span class="stat-number" id="session-score">0%</span>
-                        <span class="stat-label">Completion</span>
-                    </div>
+        </div>
+
+        <!-- Completion screen (sibling of main-panel so hide('main-panel') doesn't hide it) -->
+        <div class="session-complete-card hidden" id="complete-screen">
+            <i class="icon-6xl icon-primary" data-lucide="award" style="margin-bottom:10px;"></i>
+            <div class="completion-title">Session Complete!</div>
+            <p class="completion-sub" id="complete-sub">Great job. Keep it up!</p>
+            <div class="completion-stats">
+                <div class="completion-stat">
+                    <span class="stat-number" id="completed-exercises">0</span>
+                    <span class="stat-label">Exercises</span>
                 </div>
-                <div class="completion-actions">
-                    <button class="btn btn-primary btn-lg" id="save-btn" onclick="saveSessionData()" style="display:flex;align-items:center;gap:8px;">
-                        <i class="icon-xl" data-lucide="save" ></i> Save Progress
-                    </button>
-                    <a href="/" class="btn btn-secondary">Dashboard</a>
-                    <a href="/progress" class="btn btn-outline">View Progress →</a>
+                <div class="completion-stat">
+                    <span class="stat-number" id="total-time">0</span>
+                    <span class="stat-label">Minutes</span>
+                </div>
+                <div class="completion-stat">
+                    <span class="stat-number" id="session-score">0%</span>
+                    <span class="stat-label">Completion</span>
                 </div>
             </div>
-
+            <div class="completion-actions">
+                <button class="btn btn-primary btn-lg" id="save-btn" onclick="saveSessionData()" style="display:flex;align-items:center;gap:8px;">
+                    <i class="icon-xl" data-lucide="save" ></i> Save Progress
+                </button>
+                <a href="/" class="btn btn-secondary">Dashboard</a>
+                <a href="/progress" class="btn btn-outline">View Progress →</a>
+            </div>
         </div>
 
         <!-- Sidebar -->
@@ -148,11 +148,13 @@
 {% endblock %}
 {% block scripts %}
 <script>
-    currentWorkout = null;
+    let currentWorkout = null;
     let currentIdx = 0;
     let sessionTimer = null, exerciseTimer = null, restTimer = null;
     let sessionStart = null;
     let isPaused = false;
+    let pausedDuration = 0;
+    let pauseStarted = null;
     let restTimes = {};
     let sessionData = {
         exercises: [], startTime: null, endTime: null,
@@ -212,7 +214,7 @@
             const item = document.createElement('div');
             item.className = 'session-list-item';
             item.id = 'si-' + i;
-            item.innerHTML = `<div class="session-list-num">${i + 1}</div><span style="flex:1;font-size:0.85rem;">${ex.name}</span>`;
+            item.innerHTML = `<div class="session-list-num">${i + 1}</div><span style="flex:1;font-size:0.85rem;">${escapeHtml(ex.name)}</span>`;
             list.appendChild(item);
         });
     }
@@ -253,14 +255,14 @@
 
         document.getElementById('ex-name').textContent = ex.name;
         document.getElementById('ex-meta').innerHTML = [
-            `<span class="badge badge-primary">${ex.category}</span>`,
+            `<span class="badge badge-primary">${escapeHtml(ex.category)}</span>`,
             `<span class="badge badge-neutral">${Math.round(ex.duration * 60)}s</span>`,
-            ex.difficulty ? `<span class="badge badge-${ex.difficulty}">${ex.difficulty}</span>` : ''
+            ex.difficulty ? `<span class="badge badge-${escapeHtml(ex.difficulty)}">${escapeHtml(ex.difficulty)}</span>` : ''
         ].join(' ');
 
         if (ex.instructions) {
             document.getElementById('ex-instructions').innerHTML =
-                `<p style="font-size:0.85rem;color:var(--text-muted);text-align:center;">${ex.instructions}</p>`;
+                `<p style="font-size:0.85rem;color:var(--text-muted);text-align:center;">${escapeHtml(ex.instructions)}</p>`;
         } else {
             document.getElementById('ex-instructions').innerHTML = '';
         }
@@ -361,7 +363,7 @@
 
     function completeSession() {
         sessionData.endTime = new Date();
-        sessionData.totalDuration = Math.max(1, Math.floor((sessionData.endTime - sessionData.startTime) / 60000));
+        sessionData.totalDuration = Math.max(1, Math.floor((sessionData.endTime - sessionData.startTime - pausedDuration) / 60000));
 
         [sessionTimer, exerciseTimer, restTimer].forEach(t => t && clearInterval(t));
 
@@ -390,7 +392,7 @@
     function startGlobalTimer() {
         sessionTimer = setInterval(() => {
             if (isPaused) return;
-            const elapsed = Math.floor((Date.now() - sessionStart) / 1000);
+            const elapsed = Math.floor((Date.now() - sessionStart - pausedDuration) / 1000);
             document.getElementById('session-timer').textContent = fmtTime(elapsed);
         }, 1000);
     }
@@ -398,10 +400,15 @@
     // ─── Pause / Resume ───────────────────────────────────────
     function pauseSession() {
         isPaused = true;
+        pauseStarted = Date.now();
         document.getElementById('pause-btn').style.display = 'none';
         document.getElementById('resume-btn').style.display = 'inline-flex';
     }
     function resumeSession() {
+        if (pauseStarted) {
+            pausedDuration += Date.now() - pauseStarted;
+            pauseStarted = null;
+        }
         isPaused = false;
         document.getElementById('resume-btn').style.display = 'none';
         document.getElementById('pause-btn').style.display = 'inline-flex';

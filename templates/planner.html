@@ -174,7 +174,6 @@
         const domains = Array.from(document.querySelectorAll('input[name="domains"]:checked')).map(c => c.value);
         const duration = parseInt(document.getElementById('duration').value);
         const difficulty = document.getElementById('difficulty').value;
-        const focus = document.getElementById('focus').value;
         const goal = document.getElementById('goal').value;
 
         if (domains.length === 0) {
@@ -193,7 +192,7 @@
         fetch('/api/generate-workout', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ domains, duration, difficulty, focus, goal })
+            body: JSON.stringify({ domains, duration, difficulty, goal })
         })
             .then(r => r.json())
             .then(data => {
@@ -230,10 +229,10 @@
             item.innerHTML = `
             <div class="exercise-number">${i + 1}</div>
             <div class="exercise-info">
-                <h4>${ex.name}</h4>
-                <p>${ex.category} &bull; ${Math.round(ex.duration * 60)}s</p>
+                <h4>${escapeHtml(ex.name)}</h4>
+                <p>${escapeHtml(ex.category)} &bull; ${Math.round(ex.duration * 60)}s</p>
             </div>
-            <span class="badge badge-primary">${ex.difficulty}</span>
+            <span class="badge badge-primary">${escapeHtml(ex.difficulty)}</span>
         `;
             list.appendChild(item);
         });

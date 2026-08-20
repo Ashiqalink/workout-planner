@@ -25,23 +25,23 @@
     <div class="kpi-grid">
         <div class="kpi-card slide-up" style="animation-delay: 0.1s;">
             <i class="icon-3xl icon-primary" data-lucide="dumbbell" style="margin-bottom:10px;"></i>
-            <div class="kpi-value">{{ total_exercises or 0 }}</div>
+            <div class="kpi-value">{{ progress_data.total_exercises or 0 }}</div>
             <div class="kpi-label">Exercises Completed</div>
         </div>
         <div class="kpi-card slide-up" style="animation-delay: 0.15s;">
             <i class="icon-3xl icon-primary" data-lucide="timer" style="margin-bottom:10px;"></i>
-            <div class="kpi-value">{{ avg_session_length or 0 }}<span style="font-size:1rem;">m</span></div>
+            <div class="kpi-value">{{ progress_data.avg_session_length or 0 }}<span style="font-size:1rem;">m</span></div>
             <div class="kpi-label">Avg Session Time</div>
         </div>
         <div class="kpi-card slide-up" style="animation-delay: 0.2s;">
             <i class="icon-3xl icon-danger" data-lucide="flame" style="margin-bottom:10px;"></i>
-            <div class="kpi-value">{{ current_streak or 0 }}</div>
+            <div class="kpi-value">{{ progress_data.current_streak or 0 }}</div>
             <div class="kpi-label">Day Streak</div>
         </div>
         <div class="kpi-card slide-up" style="animation-delay: 0.25s;">
             <i class="icon-3xl icon-success" data-lucide="trending-up" style="margin-bottom:10px;"></i>
-            <div class="kpi-value">{{ weekly_sessions or 0 }}</div>
-            <div class="kpi-label">Sessions this Week</div>
+            <div class="kpi-value">{{ progress_data.total_sessions or 0 }}</div>
+            <div class="kpi-label">Total Sessions</div>
         </div>
     </div>
 
@@ -67,7 +67,7 @@
                 {% endif %}
             </div>
             <button id="start-today-btn"
-                onclick="startTodaySession('{{ today_session.name }}', '{{ today_session.duration }}', '{{ today_session.difficulty }}', '{{ today_session.focus }}')"
+                onclick="startTodaySession({{ today_session.name | tojson }}, {{ today_session.duration | tojson }}, {{ today_session.difficulty | tojson }}, {{ today_session.focus | tojson }})"
                 class="btn btn-primary" style="display:flex;align-items:center;gap:8px;justify-content:center;">
                 <i class="icon-lg icon-fill" data-lucide="play" ></i> Start Session
             </button>
@@ -237,12 +237,12 @@
                         
                         div.innerHTML = `
                             <div>
-                                <h3 class="saved-template-title">${w.workout_name}</h3>
-                                <p class="saved-template-desc">${w.workout_description || 'Custom workout template.'}</p>
-                                <p class="saved-template-exercises"><strong>Exercises:</strong> ${shortList}</p>
+                                <h3 class="saved-template-title">${escapeHtml(w.workout_name)}</h3>
+                                <p class="saved-template-desc">${escapeHtml(w.workout_description) || 'Custom workout template.'}</p>
+                                <p class="saved-template-exercises"><strong>Exercises:</strong> ${escapeHtml(shortList)}</p>
                             </div>
                             <div class="saved-template-footer">
-                                <span class="session-meta-chip"><i class="icon-sm" data-lucide="clock"></i> ${parseFloat(w.total_duration).toFixed(1)}m &bull; ${w.difficulty}</span>
+                                <span class="session-meta-chip"><i class="icon-sm" data-lucide="clock"></i> ${parseFloat(w.total_duration).toFixed(1)}m &bull; ${escapeHtml(w.difficulty)}</span>
                                 <button class="btn btn-sm btn-primary" onclick="startSavedWorkout(${idx})">
                                     <i class="icon-sm icon-fill" data-lucide="play"></i> Start
                                 </button>

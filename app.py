@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for, flash
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for, flash, abort
 import pandas as pd
 import sqlite3
 import json
@@ -8,7 +8,25 @@ import secrets
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
-app.secret_key = secrets.token_hex(16)
+if os.environ.get('SECRET_KEY'):
+    app.secret_key = os.environ['SECRET_KEY']
+else:
+    app.secret_key = secrets.token_hex(16)
+    print("WARNING: Using random secret key — sessions will not survive restarts. Set SECRET_KEY env var.")
+
+# CSRF helpers
+def generate_csrf_token():
+    if '_csrf_token' not in session:
+        session['_csrf_token'] = secrets.token_hex(32)
+    return session['_csrf_token']
+
+def validate_csrf_token():
+    token = session.get('_csrf_token')
+    form_token = request.form.get('_csrf_token') or request.headers.get('X-CSRF-Token')
+    if not token or token != form_token:
+        abort(403)
+
+app.jinja_env.globals['csrf_token'] = generate_csrf_token
 
 # Configuration
 DATABASE = 'training_app.db'
@@ -46,6 +64,7 @@ def init_db():
             user_id INTEGER,
             session_date DATE DEFAULT CURRENT_DATE,
             exercises_completed TEXT,
+            exercises_count INTEGER DEFAULT 0,
             total_duration INTEGER,
             session_type TEXT,
             completion_status TEXT DEFAULT 'completed',
@@ -78,7 +97,8 @@ def init_db():
             primary_benefit TEXT,
             secondary_benefit TEXT,
             difficulty_level TEXT,
-            instructions TEXT
+            instructions TEXT,
+            UNIQUE(category, exercise_name)
         )
     ''')
     # Create saved workouts table
@@ -94,6 +114,11 @@ def init_db():
             created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+
+    # Migration: add exercises_count to databases created before it existed
+    cols = [r['name'] for r in conn.execute('PRAGMA table_info(user_sessions)').fetchall()]
+    if 'exercises_count' not in cols:
+        conn.execute('ALTER TABLE user_sessions ADD COLUMN exercises_count INTEGER DEFAULT 0')
 
     conn.commit()
     conn.close()
@@ -140,33 +165,36 @@ def populate_exercises_db():
     """Populate exercises table from CSV data if empty."""
     conn = get_db_connection()
 
-    # Check if table already has rows
-    try:
+    # Check if table exists and has rows using PRAGMA (safe, no exception needed)
+    table_exists = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='exercises'"
+    ).fetchone()
+    if table_exists:
         count = conn.execute('SELECT COUNT(*) FROM exercises').fetchone()[0]
         if count > 0:
             conn.close()
             return
-    except Exception:
-        pass
 
-    # Clear existing exercises
-    conn.execute('DELETE FROM exercises')
+    # Only clear if table exists (don't wipe custom exercises if table is missing)
+    if table_exists:
+        conn.execute('DELETE FROM exercises')
 
     # Load exercise data
     data = load_exercise_data()
 
     for exercise in data['exercises']:
         conn.execute('''
-            INSERT INTO exercises (category, exercise_name, duration_minutes, 
-                                 primary_benefit, secondary_benefit, difficulty_level)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT OR IGNORE INTO exercises (category, exercise_name, duration_minutes, 
+                                 primary_benefit, secondary_benefit, difficulty_level, instructions)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         ''', (
             exercise['category'],
             exercise['name'],
             exercise['duration'],
             exercise['description'],
             exercise['target_muscles'],
-            exercise['difficulty']
+            exercise['difficulty'],
+            exercise.get('instructions', '')
         ))
 
     conn.commit()
@@ -263,20 +291,22 @@ def get_today_session(user_id):
 @app.route('/')
 def index():
     """Main dashboard route."""
-    # Initialize guest session if not exists
-    if 'user_id' not in session:
-        session['user_id'] = 'guest'
-        session['current_week'] = 1
-        session['streak'] = 0
-        session['weekly_minutes'] = 0
-        session['domain_progress'] = {
-            'strength_power': 0,
-            'speed_mobility': 0,
-            'endurance': 0,
-            'agility': 0,
-            'cognition': 0
-        }
-    elif isinstance(session.get('domain_progress'), dict) and 'strength' in session['domain_progress']:
+    # Seed guest session defaults. setdefault rather than assignment: a session
+    # can already hold progress from /api/complete_session if the user reached
+    # the planner or a saved workout before ever loading the dashboard.
+    session.setdefault('user_id', 'guest')
+    session.setdefault('current_week', 1)
+    session.setdefault('streak', 0)
+    session.setdefault('weekly_minutes', 0)
+    session.setdefault('domain_progress', {
+        'strength_power': 0,
+        'speed_mobility': 0,
+        'endurance': 0,
+        'agility': 0,
+        'cognition': 0
+    })
+
+    if isinstance(session.get('domain_progress'), dict) and 'strength' in session['domain_progress']:
         # Migrate old session keys if they exist
         session['domain_progress'] = {
             'strength_power': session['domain_progress'].get('strength_power', session['domain_progress'].get('strength', 0)),
@@ -333,6 +363,26 @@ import urllib.error
 import re
 
 LM_STUDIO_API_URL = os.environ.get('LM_STUDIO_API_URL', 'http://localhost:1234/v1')
+
+_cached_model = None
+
+def get_loaded_model():
+    """Query LM Studio to find the currently loaded model name (cached)."""
+    global _cached_model
+    if _cached_model is not None:
+        return _cached_model
+    try:
+        req = urllib.request.Request(f"{LM_STUDIO_API_URL}/models")
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            models = json.loads(resp.read().decode('utf-8'))
+            data = models.get('data', [])
+            if data:
+                _cached_model = data[0].get('id', 'lm-studio')
+                return _cached_model
+    except Exception:
+        pass
+    _cached_model = 'lm-studio'
+    return _cached_model
 
 def generate_workout_via_llm(domains, duration, difficulty, focus, candidates, goal=None):
     url = f"{LM_STUDIO_API_URL}/chat/completions"
@@ -569,6 +619,8 @@ def api_generate_workout():
 @app.route('/api/exercises/add', methods=['POST'])
 def api_add_exercise():
     """Add a custom exercise to the library."""
+    if session.get('user_id') in (None, 'guest'):
+        return jsonify({'success': False, 'error': 'Login required'}), 401
     try:
         data = request.get_json()
         if not data:
@@ -587,13 +639,15 @@ def api_add_exercise():
 
         # Save to database
         conn = get_db_connection()
-        conn.execute('''
-            INSERT INTO exercises (category, exercise_name, duration_minutes, 
-                                 primary_benefit, secondary_benefit, difficulty_level, instructions)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (category, name, duration, description, target_muscles, difficulty, instructions))
-        conn.commit()
-        conn.close()
+        try:
+            conn.execute('''
+                INSERT INTO exercises (category, exercise_name, duration_minutes, 
+                                     primary_benefit, secondary_benefit, difficulty_level, instructions)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (category, name, duration, description, target_muscles, difficulty, instructions))
+            conn.commit()
+        finally:
+            conn.close()
         
         new_ex = {
             'category': category,
@@ -605,18 +659,25 @@ def api_add_exercise():
             'instructions': instructions
         }
         return jsonify({'success': True, 'exercise': new_ex})
+    except sqlite3.IntegrityError:
+        return jsonify({
+            'success': False,
+            'error': 'An exercise with that name already exists in this category.'
+        }), 409
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/workouts/save', methods=['POST'])
 def api_save_workout():
     """Save an approved workout template."""
+    if session.get('user_id') in (None, 'guest'):
+        return jsonify({'success': False, 'error': 'Login required'}), 401
     try:
         data = request.get_json()
         if not data:
             return jsonify({'success': False, 'error': 'No data received'}), 400
             
-        user_id = str(session.get('user_id', 'guest'))
+        user_id = str(session.get('user_id'))
         name = data.get('workout_name')
         description = data.get('workout_description', '')
         exercises = data.get('exercises', [])
@@ -668,18 +729,51 @@ def api_list_saved_workouts():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+def count_completed_exercises(data):
+    """Exercises actually completed in a session payload.
+
+    Both the guest and logged-in paths use this so the two agree; falls back to
+    the length of the exercise list for older clients that omit the count.
+    """
+    try:
+        n = int(data.get('completedExercises', 0))
+    except (TypeError, ValueError):
+        n = 0
+    if n <= 0:
+        n = len(data.get('exercises', []) or [])
+    return max(0, n)
+
 @app.route('/api/complete_session', methods=['POST'])
 def api_complete_session():
     """Record a completed training session."""
     data = request.get_json()
     user_id = session.get('user_id', 'guest')
+    exercises_count = count_completed_exercises(data)
 
     try:
         if user_id == 'guest':
             # Update session data for guest users
             total_duration = data.get('totalDuration', 0)
             session['weekly_minutes'] = session.get('weekly_minutes', 0) + total_duration
-            session['streak'] = session.get('streak', 0) + 1
+            # Compute streak from consecutive days, same logic as logged-in path
+            today_str = datetime.now().strftime('%Y-%m-%d')
+            streak_dates = session.get('streak_dates', [])
+            if today_str not in streak_dates:
+                streak_dates.insert(0, today_str)
+            streak = 0
+            prev = datetime.now().date()
+            for ds in streak_dates:
+                try:
+                    d = datetime.strptime(ds, '%Y-%m-%d').date()
+                    if (prev - d).days <= 1:
+                        streak += 1
+                        prev = d
+                    else:
+                        break
+                except Exception:
+                    break
+            session['streak'] = streak
+            session['streak_dates'] = streak_dates[:30]
 
             # Update domain progress using domainProgress data structure
             domain_progress = session.get('domain_progress', {})
@@ -687,7 +781,13 @@ def api_complete_session():
             
             for domain, progress_data in domain_progress_data.items():
                 if progress_data.get('exercises', 0) > 0:
-                    domain_progress[domain] = domain_progress.get(domain, 0) + progress_data.get('exercises', 0)
+                    current = domain_progress.get(domain, {'exercises': 0, 'minutes': 0})
+                    if isinstance(current, (int, float)):
+                        current = {'exercises': int(current), 'minutes': 0}
+                    domain_progress[domain] = {
+                        'exercises': current.get('exercises', 0) + progress_data.get('exercises', 0),
+                        'minutes': current.get('minutes', 0) + progress_data.get('minutes', 0)
+                    }
             
             session['domain_progress'] = domain_progress
 
@@ -703,6 +803,10 @@ def api_complete_session():
             recent_sessions = recent_sessions[:10]
             session['recent_sessions'] = recent_sessions
 
+            # Running totals — recent_sessions is capped at 10, so it can't be counted
+            session['session_count'] = session.get('session_count', 0) + 1
+            session['total_exercises'] = session.get('total_exercises', 0) + exercises_count
+
             return jsonify({'status': 'success', 'message': 'Session recorded for guest user'})
 
         # For logged-in users, save to database
@@ -710,9 +814,9 @@ def api_complete_session():
         # Save session record
         # Save session
         conn.execute('''
-            INSERT INTO user_sessions (user_id, exercises_completed, total_duration, session_type)
-            VALUES (?, ?, ?, ?)
-        ''', (user_id, json.dumps(data.get('exercises', [])), 
+            INSERT INTO user_sessions (user_id, exercises_completed, exercises_count, total_duration, session_type)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (user_id, json.dumps(data.get('exercises', [])), exercises_count,
               data.get('totalDuration', 0), data.get('sessionType', 'custom')))
 
         # Update user progress
@@ -745,7 +849,9 @@ def api_user_stats():
 
 @app.route('/api/debug')
 def api_debug():
-    """Debug endpoint to check data loading."""
+    """Debug endpoint to check data loading (only when FLASK_DEBUG=1)."""
+    if os.environ.get('FLASK_DEBUG', '0') != '1':
+        return jsonify({'error': 'Not available'}), 404  # noqa: also see __main__ default below
     return jsonify({
         'training_data_loaded': bool(training_data),
         'exercises_count': len(training_data.get('exercises', [])) if training_data else 0,
@@ -845,20 +951,41 @@ def get_user_progress_data(user_id):
         streak = session.get('streak', 0)
         recent_sessions = session.get('recent_sessions', [])
         
+        def _guest_domain(key):
+            dp = domain_progress.get(key, {})
+            if isinstance(dp, (int, float)):
+                return {'sessions': int(dp), 'minutes': 0, 'week': 1, 'progress': min(int(dp) * 10, 100)}
+            ex_count = dp.get('exercises', 0)
+            mins = dp.get('minutes', 0)
+            return {
+                'sessions': ex_count,
+                'minutes': mins,
+                'week': 1,
+                'progress': min(mins, 100)
+            }
+
         # Create domain-specific data structure with proper domain key mapping
         domains = {
-            'strength_power': {'sessions': domain_progress.get('strength_power', 0), 'minutes': domain_progress.get('strength_power', 0) * 10, 'week': 1, 'progress': min(domain_progress.get('strength_power', 0) * 10, 100)},
-            'speed_mobility': {'sessions': domain_progress.get('speed_mobility', 0), 'minutes': domain_progress.get('speed_mobility', 0) * 10, 'week': 1, 'progress': min(domain_progress.get('speed_mobility', 0) * 10, 100)},
-            'endurance': {'sessions': domain_progress.get('endurance', 0), 'minutes': domain_progress.get('endurance', 0) * 10, 'week': 1, 'progress': min(domain_progress.get('endurance', 0) * 10, 100)},
-            'agility': {'sessions': domain_progress.get('agility', 0), 'minutes': domain_progress.get('agility', 0) * 10, 'week': 1, 'progress': min(domain_progress.get('agility', 0) * 10, 100)},
-            'cognition': {'sessions': domain_progress.get('cognition', 0), 'minutes': domain_progress.get('cognition', 0) * 10, 'week': 1, 'progress': min(domain_progress.get('cognition', 0) * 10, 100)}
+            'strength_power': _guest_domain('strength_power'),
+            'speed_mobility': _guest_domain('speed_mobility'),
+            'endurance': _guest_domain('endurance'),
+            'agility': _guest_domain('agility'),
+            'cognition': _guest_domain('cognition')
         }
         
+        total_sessions = session.get('session_count', len(recent_sessions))
+        total_exercises = session.get('total_exercises', 0)
+        if not total_exercises:
+            # Fall back to the per-domain tallies for sessions recorded before
+            # total_exercises was tracked.
+            total_exercises = sum(d.get('exercises', 0) for d in domain_progress.values() if isinstance(d, dict))
+
         return {
-            'total_sessions': sum(domain_progress.values()),
+            'total_exercises': total_exercises,
+            'total_sessions': total_sessions,
             'total_minutes': weekly_minutes,
             'current_streak': streak,
-            'avg_session_length': 15 if sum(domain_progress.values()) > 0 else 0,
+            'avg_session_length': round(weekly_minutes / total_sessions) if total_sessions else 0,
             'weekly_progress': [weekly_minutes, 0, 0, 0],  # 4 weeks of data
             'recent_sessions': recent_sessions,
             'strength': domains['strength_power'],
@@ -896,9 +1023,18 @@ def get_user_progress_data(user_id):
             'progress': min(domain['total_minutes'], 100)  # Progress based on minutes
         }
 
-    # Get total stats
-    total_sessions = sum(d['sessions'] for d in domain_progress.values())
-    total_minutes = sum(d['minutes'] for d in domain_progress.values())
+    # Get total stats from actual session records (not domain exercise counts)
+    total_row = conn.execute('''
+        SELECT COUNT(*) as cnt,
+               COALESCE(SUM(total_duration), 0) as mins,
+               COALESCE(SUM(exercises_count), 0) as exercises
+        FROM user_sessions WHERE user_id = ?
+    ''', (user_id,)).fetchone()
+    total_sessions = total_row['cnt']
+    total_minutes = total_row['mins']
+    # Real exercise count. user_progress.sessions_completed counts sessions that
+    # touched a domain, not exercises, so it can't be summed for this.
+    total_exercises = total_row['exercises']
     
     # Create domain structure with defaults
     domains = {
@@ -909,21 +1045,29 @@ def get_user_progress_data(user_id):
         'cognition': domain_progress.get('cognition', {'sessions': 0, 'minutes': 0, 'week': 1, 'progress': 0})
     }
 
-    # Compute streak from consecutive session dates
+    # Compute streak from consecutive session DATES. Query distinct dates rather
+    # than reusing `sessions`: that list is capped at 10 rows, and several
+    # sessions on one day are still a single day of the streak.
+    streak_rows = conn.execute('''
+        SELECT DISTINCT session_date
+        FROM user_sessions
+        WHERE user_id = ?
+        ORDER BY session_date DESC
+        LIMIT 366
+    ''', (user_id,)).fetchall()
+
     streak = 0
-    if sessions:
-        today = datetime.now().date()
-        prev = today
-        for s in sessions:
-            try:
-                d = datetime.strptime(str(s['session_date']), '%Y-%m-%d').date()
-                if (prev - d).days <= 1:
-                    streak += 1
-                    prev = d
-                else:
-                    break
-            except Exception:
-                break
+    prev = datetime.now().date()
+    for row in streak_rows:
+        try:
+            d = datetime.strptime(str(row['session_date']), '%Y-%m-%d').date()
+        except (TypeError, ValueError):
+            break
+        if (prev - d).days <= 1:
+            streak += 1
+            prev = d
+        else:
+            break
 
     avg_length = round(total_minutes / total_sessions) if total_sessions > 0 else 0
 
@@ -931,6 +1075,7 @@ def get_user_progress_data(user_id):
 
     return {
         'total_sessions': total_sessions,
+        'total_exercises': total_exercises,
         'total_minutes': total_minutes,
         'current_streak': streak,
         'avg_session_length': avg_length,
@@ -962,16 +1107,16 @@ def update_user_progress(user_id, session_data, conn=None):
             if existing:
                 conn.execute('''
                     UPDATE user_progress
-                    SET sessions_completed = sessions_completed + ?,
+                    SET sessions_completed = sessions_completed + 1,
                         total_minutes = total_minutes + ?,
                         last_session_date = CURRENT_DATE
                     WHERE user_id = ? AND domain = ?
-                ''', (progress_data.get('exercises', 0), progress_data.get('minutes', 0), user_id, domain))
+                ''', (progress_data.get('minutes', 0), user_id, domain))
             else:
                 conn.execute('''
                     INSERT INTO user_progress (user_id, domain, sessions_completed, total_minutes, last_session_date)
-                    VALUES (?, ?, ?, ?, CURRENT_DATE)
-                ''', (user_id, domain, progress_data.get('exercises', 0), progress_data.get('minutes', 0)))
+                    VALUES (?, ?, 1, ?, CURRENT_DATE)
+                ''', (user_id, domain, progress_data.get('minutes', 0)))
 
     if close_conn:
         conn.commit()
@@ -982,8 +1127,9 @@ def update_user_progress(user_id, session_data, conn=None):
 def login():
     """User login route."""
     if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
+        validate_csrf_token()
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
 
         conn = get_db_connection()
         user = conn.execute('''
@@ -1007,46 +1153,58 @@ def login():
 def register():
     """User registration route."""
     if request.method == 'POST':
-        username = request.form['username']
-        email = request.form['email']
-        password = request.form['password']
+        validate_csrf_token()
+        username = request.form.get('username', '').strip()
+        email = request.form.get('email', '').strip()
+        password = request.form.get('password', '')
+        confirm_password = request.form.get('confirm_password', '')
+
+        # Server-side validation
+        if not username or len(username) < 3:
+            flash('Username must be at least 3 characters', 'error')
+            return render_template('register.html')
+        if not email or '@' not in email:
+            flash('Please enter a valid email address', 'error')
+            return render_template('register.html')
+        if len(password) < 6:
+            flash('Password must be at least 6 characters', 'error')
+            return render_template('register.html')
+        if password != confirm_password:
+            flash('Passwords do not match', 'error')
+            return render_template('register.html')
 
         conn = get_db_connection()
 
-        # Check if username or email already exists
-        existing_user = conn.execute('''
-            SELECT id, username, email FROM users WHERE username = ? OR email = ?
-        ''', (username, email)).fetchone()
-
-        if existing_user:
-            conn.close()
-            if existing_user['username'] == username:
-                flash('Username already exists', 'error')
-            else:
-                flash('Email already exists', 'error')
-            return render_template('register.html')
-
-        # Create new user
+        # Create new user — UNIQUE constraint handles concurrency
         password_hash = generate_password_hash(password)
-        conn.execute('''
-            INSERT INTO users (username, email, password_hash)
-            VALUES (?, ?, ?)
-        ''', (username, email, password_hash))
-        conn.commit()
+        try:
+            conn.execute('''
+                INSERT INTO users (username, email, password_hash)
+                VALUES (?, ?, ?)
+            ''', (username, email, password_hash))
+            conn.commit()
 
-        # Get the new user ID
-        user_id = conn.execute('''
-            SELECT id FROM users WHERE username = ?
-        ''', (username,)).fetchone()['id']
+            # Get the new user ID
+            user_id = conn.execute('''
+                SELECT id FROM users WHERE username = ?
+            ''', (username,)).fetchone()['id']
 
-        conn.close()
+            conn.close()
 
-        # Set session
-        session['user_id'] = user_id
-        session['username'] = username
+            # Set session
+            session['user_id'] = user_id
+            session['username'] = username
 
-        flash('Registration successful!', 'success')
-        return redirect(url_for('index'))
+            flash('Registration successful!', 'success')
+            return redirect(url_for('index'))
+        except sqlite3.IntegrityError:
+            conn.close()
+            flash('Username or email already exists', 'error')
+            return render_template('register.html')
+        except Exception as e:
+            conn.close()
+            flash('Registration failed. Please try again.', 'error')
+            return render_template('register.html')
 
     return render_template('register.html')
 
@@ -1057,10 +1215,16 @@ def logout():
     flash('You have been logged out', 'info')
     return redirect(url_for('index'))
 
-if __name__ == '__main__':
-    # Initialize database and populate exercises
+# Initialize database and populate exercises on import
+# (works with both `python app.py` and `flask run` / gunicorn)
+with app.app_context():
     init_db()
     populate_exercises_db()
 
+if __name__ == '__main__':
     # Run the app
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(
+        debug=os.environ.get('FLASK_DEBUG', '0') == '1',
+        host=os.environ.get('FLASK_HOST', '127.0.0.1'),
+        port=int(os.environ.get('FLASK_PORT', 5000))
+    )

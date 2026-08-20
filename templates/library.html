@@ -14,9 +14,11 @@
             <h1>📚 Exercise Library</h1>
             <p>Browse all exercises across 5 training domains</p>
         </div>
+        {% if session.get('username') %}
         <button class="btn btn-primary" onclick="toggleAddExerciseForm()">
             <i class="icon-xl" data-lucide="plus"></i> Add Custom Exercise
         </button>
+        {% endif %}
     </div>
 
     <!-- Custom Exercise Form (Hidden by default) -->
@@ -267,31 +269,35 @@
         const accent = getCategoryAccent(ex.category);
         const durationSec = Math.round(ex.duration * 60);
 
-        const escaped = {
-            name: ex.name.replace(/'/g, "\\'"),
-            instructions: (ex.instructions || '').replace(/'/g, "\\'").substring(0, 120)
+        const safe = {
+            name: escapeHtml(ex.name),
+            category: escapeHtml(ex.category),
+            difficulty: escapeHtml(ex.difficulty),
+            target_muscles: escapeHtml(ex.target_muscles),
+            description: escapeHtml(ex.description),
+            instructions: escapeHtml(ex.instructions)
         };
 
         card.innerHTML = `
         <div class="exercise-card-body">
             <div class="exercise-header">
-                <h3>${ex.name}</h3>
-                <span class="badge badge-${accent}">${ex.category}</span>
+                <h3>${safe.name}</h3>
+                <span class="badge badge-${accent}">${safe.category}</span>
             </div>
             <div class="exercise-meta">
                 <p><strong>Duration:</strong> ${durationSec}s</p>
-                <p><strong>Difficulty:</strong> <span class="badge ${getDifficultyBadge(ex.difficulty)}">${ex.difficulty}</span></p>
-                ${ex.target_muscles ? `<p><strong>Muscles:</strong> ${ex.target_muscles}</p>` : ''}
-                ${ex.description ? `<p style="margin-top:6px;font-style:italic;">${ex.description}</p>` : ''}
+                <p><strong>Difficulty:</strong> <span class="badge ${getDifficultyBadge(ex.difficulty)}">${safe.difficulty}</span></p>
+                ${safe.target_muscles ? `<p><strong>Muscles:</strong> ${safe.target_muscles}</p>` : ''}
+                ${safe.description ? `<p style="margin-top:6px;font-style:italic;">${safe.description}</p>` : ''}
             </div>
-            ${ex.instructions ? `
+            ${safe.instructions ? `
             <div class="exercise-instructions">
                 <h4>Instructions</h4>
-                <p>${ex.instructions}</p>
+                <p>${safe.instructions}</p>
             </div>` : ''}
         </div>
         <div class="exercise-actions">
-            <button class="btn btn-sm btn-outline" onclick="addToWorkout('${escaped.name}')">+ Add to Workout</button>
+            <button class="btn btn-sm btn-outline" onclick="addToWorkout(this.dataset.name)" data-name="${safe.name.replace(/"/g, '&quot;')}">+ Add to Workout</button>
         </div>
     `;
         return card;

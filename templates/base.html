@@ -94,7 +94,7 @@
                 toast.className = 'toast toast-' + cat;
                 toast.innerHTML = `
                 <span class="toast-icon">${icons[cat] || icons.message}</span>
-                <span class="toast-msg">${msg}</span>
+                <span class="toast-msg">${typeof escapeHtml === 'function' ? escapeHtml(msg) : msg}</span>
                 <button class="toast-close" aria-label="Close"><i class="icon-md" data-lucide="x" ></i></button>
                 `;
                 container.appendChild(toast);
