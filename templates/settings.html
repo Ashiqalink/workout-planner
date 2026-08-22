@@ -1,0 +1,613 @@
+{% extends "base.html" %}
+
+{% block title %}Settings – FitTrack{% endblock %}
+
+{#
+  Every control on this page is rendered from settings_registry.SETTINGS.
+  Adding a setting there makes it appear here, become searchable, and become
+  something the assistant can change — there is no per-setting markup to write.
+
+  Three things keep ~80 options from feeling like ~80 options:
+    * the mode switch hides advanced and expert tiers until asked for,
+    * search always covers every tier, so nothing is truly buried,
+    * presets set a coherent group of them in one tap.
+#}
+
+{% macro control(s, value) %}
+  {% if s.type == 'bool' %}
+    <label class="switch">
+      <input type="checkbox" data-key="{{ s.key }}" data-type="bool" {{ 'checked' if value }}
+             aria-label="{{ s.label }}">
+      <span class="track"></span>
+    </label>
+
+  {% elif s.type == 'enum' %}
+    <select data-key="{{ s.key }}" data-type="enum" aria-label="{{ s.label }}">
+      {% for choice in s.choices %}
+      <option value="{{ choice[0] }}" {{ 'selected' if value == choice[0] }}>{{ choice[1] }}</option>
+      {% endfor %}
+    </select>
+
+  {% elif s.type == 'multi' %}
+    <div class="multi-control" data-key="{{ s.key }}" data-type="multi" role="group" aria-label="{{ s.label }}">
+      {% for choice in s.choices %}
+      <button type="button" class="multi-chip {{ 'on' if choice[0] in value }}"
+              data-value="{{ choice[0] }}" aria-pressed="{{ 'true' if choice[0] in value else 'false' }}">
+        {{ choice[1] }}
+      </button>
+      {% endfor %}
+    </div>
+
+  {% elif s.type in ('int', 'float') %}
+    <div class="number-control">
+      <input type="range" data-key="{{ s.key }}" data-type="{{ s.type }}"
+             min="{{ s.minimum }}" max="{{ s.maximum }}" step="{{ s.step or 1 }}"
+             value="{{ value }}" aria-label="{{ s.label }}">
+      <span class="num-value" data-value-for="{{ s.key }}">{{ value }}{{ s.unit }}</span>
+    </div>
+
+  {% elif s.key == 'appearance.custom_css' %}
+    <textarea data-key="{{ s.key }}" data-type="text" spellcheck="false"
+              placeholder=".kpi-card { border-width: 2px; }"
+              aria-label="{{ s.label }}">{{ value }}</textarea>
+
+  {% else %}
+    <input type="text" data-key="{{ s.key }}" data-type="text" value="{{ value }}"
+           placeholder="{{ s.default or '' }}" aria-label="{{ s.label }}">
+  {% endif %}
+{% endmacro %}
+
+{% block content %}
+<div class="settings-page">
+
+  <div class="page-header">
+    <div class="breadcrumb"><a href="{{ url_for('index') }}">Home</a> › Settings</div>
+    <h1>Settings</h1>
+    <p>Start simple. Open up as much as you want — nothing here is hidden from search.</p>
+  </div>
+
+  <!-- ── Just ask ──────────────────────────────────────────────── -->
+  {% if settings['ai.allow_settings_changes'] %}
+  <div class="assistant-box">
+    <div class="assistant-title">
+      <i class="icon-lg" data-lucide="sparkles"></i> Just ask
+    </div>
+    <p class="assistant-sub">
+      Describe what you want in your own words. It finds the switches, shows you exactly
+      what will change, and waits for your OK.
+      {% if not settings['ai.enabled'] %}
+      Your local model is turned off, so this uses the built-in matcher — which handles
+      most everyday requests on its own.
+      {% endif %}
+    </p>
+    <form class="assistant-row" id="ask-form">
+      <input type="text" id="ask-input" autocomplete="off"
+             placeholder="e.g. dark mode with bigger text and no sound">
+      <button type="submit" class="btn btn-primary" id="ask-btn">
+        <i class="icon-md" data-lucide="wand-2"></i> Ask
+      </button>
+    </form>
+    <div class="assistant-examples">
+      <button type="button" class="assistant-example">turn on dark mode</button>
+      <button type="button" class="assistant-example">make the text bigger</button>
+      <button type="button" class="assistant-example">rest 90 seconds between exercises</button>
+      <button type="button" class="assistant-example">no sound and no vibration</button>
+      <button type="button" class="assistant-example">I want to log sets reps and weight</button>
+      <button type="button" class="assistant-example">show me everything</button>
+    </div>
+
+    <div class="assistant-result" id="ask-result" hidden>
+      <div class="assistant-summary" id="ask-summary"></div>
+      <div class="proposal-list" id="ask-proposals"></div>
+      <div class="settings-actions" id="ask-actions"></div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- ── Presets ───────────────────────────────────────────────── -->
+  <div class="section-heading" style="margin-bottom:12px;">
+    <h2>Start from a setup</h2>
+  </div>
+  <div class="preset-grid">
+    {% for key, preset in presets.items() %}
+    <button type="button" class="preset-card" data-preset="{{ key }}">
+      <h4><i class="icon-md icon-primary" data-lucide="{{ preset.icon }}"></i> {{ preset.label }}</h4>
+      <p>{{ preset.help }}</p>
+    </button>
+    {% endfor %}
+  </div>
+
+  <!-- ── Depth + search ────────────────────────────────────────── -->
+  <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-bottom:16px;">
+    <div class="mode-switch" id="mode-switch" role="group" aria-label="How many options to show">
+      <button type="button" data-mode="simple">Simple</button>
+      <button type="button" data-mode="advanced">Advanced</button>
+      <button type="button" data-mode="expert">Everything</button>
+    </div>
+    <span style="font-size:0.8rem;color:var(--text-muted);" id="mode-hint"></span>
+  </div>
+
+  <div class="settings-search-wrap">
+    <i class="icon-lg settings-search-icon" data-lucide="search"></i>
+    <input type="search" id="settings-search" autocomplete="off"
+           placeholder="Search every setting — including the ones your current mode hides…"
+           aria-label="Search settings">
+  </div>
+  <div class="search-note" id="search-note" hidden></div>
+
+  <div class="settings-layout">
+
+    <!-- Group navigation -->
+    <nav class="settings-nav" id="settings-nav" aria-label="Settings sections">
+      {% for group in groups %}
+      {% set members = registry | selectattr('group', 'equalto', group) | list %}
+      <a href="#group-{{ loop.index }}" data-group="{{ group }}">
+        <i class="icon-md" data-lucide="{{ group_icons.get(group, 'settings') }}"></i>
+        <span>{{ group }}</span>
+        <span class="sn-count">{{ members | length }}</span>
+      </a>
+      {% endfor %}
+    </nav>
+
+    <!-- Groups -->
+    <div id="settings-body">
+      {% for group in groups %}
+      <section class="settings-group" id="group-{{ loop.index }}" data-group="{{ group }}">
+        <div class="settings-group-head">
+          <i class="icon-lg icon-primary" data-lucide="{{ group_icons.get(group, 'settings') }}"></i>
+          <h2>{{ group }}</h2>
+          <button type="button" class="settings-group-reset" data-reset-group="{{ group }}">
+            Reset section
+          </button>
+        </div>
+
+        {% for s in registry if s.group == group %}
+        {% set value = settings[s.key] %}
+        <div class="setting-row" data-key="{{ s.key }}" data-tier="{{ s.tier }}"
+             data-search="{{ (s.label ~ ' ' ~ s.group ~ ' ' ~ s.key ~ ' ' ~ s.help ~ ' ' ~ (s.keywords | join(' '))) | lower }}">
+          <div>
+            <div class="setting-label">
+              {{ s.label }}
+              {% if s.tier == 'advanced' %}<span class="tier-badge tier-advanced">adv</span>{% endif %}
+              {% if s.tier == 'expert' %}<span class="tier-badge tier-expert">expert</span>{% endif %}
+            </div>
+            {% if s.help %}<div class="setting-help">{{ s.help }}</div>{% endif %}
+          </div>
+          <div class="setting-control">{{ control(s, value) }}</div>
+        </div>
+        {% endfor %}
+
+        <div class="hidden-count" data-hidden-for="{{ group }}" hidden>
+          <span></span>
+          <button type="button" class="reveal-more">Show them</button>
+        </div>
+      </section>
+      {% endfor %}
+
+      <!-- ── Data ────────────────────────────────────────────────── -->
+      <section class="settings-group" id="group-data-actions">
+        <div class="settings-group-head">
+          <i class="icon-lg icon-primary" data-lucide="hard-drive"></i>
+          <h2>Your data</h2>
+        </div>
+        <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:14px;">
+          Everything this app knows about you is yours to take. The export is a plain file —
+          settings, sessions, saved workouts and set logs — and it imports straight back.
+          {% if not session.get('username') %}
+          You are training as a guest, so only this browser session is included.
+          {% endif %}
+        </p>
+        <div class="settings-actions">
+          <a class="btn btn-outline" href="{{ url_for('api_export_data') }}"
+             download>
+            <i class="icon-md" data-lucide="download"></i> Export my data
+          </a>
+          <button type="button" class="btn btn-outline" id="import-btn">
+            <i class="icon-md" data-lucide="upload"></i> Import settings
+          </button>
+          <input type="file" id="import-file" accept="application/json,.json" hidden>
+          <button type="button" class="btn btn-ghost" id="reset-all-btn">
+            <i class="icon-md" data-lucide="rotate-ccw"></i> Reset everything to defaults
+          </button>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Units keyed by setting, so range readouts can append "min", "s" or "%"
+    // without the client re-deriving the registry.
+    window.__SETTINGS_UNITS = {{ settings_units | tojson }};
+</script>
+<script>
+(function () {
+    const TIER_RANK = { simple: 0, advanced: 1, expert: 2 };
+    const rows = Array.from(document.querySelectorAll('.setting-row'));
+    const groups = Array.from(document.querySelectorAll('.settings-group[data-group]'));
+    const searchInput = document.getElementById('settings-search');
+    const searchNote = document.getElementById('search-note');
+
+    /* ── Visibility: mode tier + search ──────────────────────────── */
+
+    function currentMode() { return FT.get('ui.mode', 'simple'); }
+
+    function applyVisibility() {
+        const query = searchInput.value.trim().toLowerCase();
+        const words = query ? query.split(/\s+/).filter(Boolean) : [];
+        const limit = TIER_RANK[currentMode()] ?? 0;
+        let matches = 0;
+        let hiddenByTier = 0;
+
+        rows.forEach(row => {
+            const haystack = row.dataset.search || '';
+            const hit = words.length === 0 || words.every(w => haystack.includes(w));
+
+            if (words.length) {
+                // Search deliberately ignores the mode: a setting you can name
+                // should always be reachable, whatever depth you are in.
+                row.hidden = !hit;
+                if (hit) matches++;
+            } else {
+                const tooDeep = (TIER_RANK[row.dataset.tier] ?? 0) > limit;
+                row.hidden = tooDeep;
+                if (tooDeep) hiddenByTier++;
+            }
+        });
+
+        // Group and nav visibility follows whether anything inside survived.
+        groups.forEach(group => {
+            const visible = Array.from(group.querySelectorAll('.setting-row')).some(r => !r.hidden);
+            group.hidden = !visible;
+            const link = document.querySelector(`.settings-nav a[data-group="${CSS.escape(group.dataset.group)}"]`);
+            if (link) link.hidden = !visible;
+
+            const notice = group.querySelector('[data-hidden-for]');
+            if (notice) {
+                const count = Array.from(group.querySelectorAll('.setting-row'))
+                    .filter(r => r.hidden && (!words.length)).length;
+                notice.hidden = words.length > 0 || count === 0;
+                if (!notice.hidden) {
+                    notice.querySelector('span').textContent =
+                        `${count} more option${count === 1 ? '' : 's'} in this section.`;
+                }
+            }
+        });
+
+        document.getElementById('group-data-actions').hidden = words.length > 0;
+
+        if (words.length) {
+            searchNote.hidden = false;
+            searchNote.textContent = matches
+                ? `${matches} setting${matches === 1 ? '' : 's'} match "${query}" — including any your current mode normally hides.`
+                : `Nothing matches "${query}". Try the Just ask box above — it understands plain descriptions.`;
+        } else {
+            searchNote.hidden = true;
+        }
+
+        const hint = document.getElementById('mode-hint');
+        hint.textContent = hiddenByTier
+            ? `${hiddenByTier} deeper options hidden — search still finds them.`
+            : 'Every option is showing.';
+
+        document.querySelectorAll('#mode-switch button').forEach(b =>
+            b.classList.toggle('active', b.dataset.mode === currentMode()));
+    }
+
+    searchInput.addEventListener('input', applyVisibility);
+    searchInput.addEventListener('keydown', e => {
+        if (e.key === 'Escape') { searchInput.value = ''; applyVisibility(); }
+    });
+
+    document.querySelectorAll('#mode-switch button').forEach(button => {
+        button.addEventListener('click', async () => {
+            try {
+                await FT.set('ui.mode', button.dataset.mode);
+                applyVisibility();
+                showToast(`Showing the ${button.textContent.trim().toLowerCase()} set of options.`, 'info');
+            } catch (e) { showToast(e.message, 'error'); }
+        });
+    });
+
+    document.querySelectorAll('.reveal-more').forEach(button => {
+        button.addEventListener('click', async () => {
+            const next = currentMode() === 'simple' ? 'advanced' : 'expert';
+            try {
+                await FT.set('ui.mode', next);
+                applyVisibility();
+            } catch (e) { showToast(e.message, 'error'); }
+        });
+    });
+
+    /* ── Saving a control ────────────────────────────────────────── */
+
+    let pending = null;
+
+    async function save(key, value, { quiet } = {}) {
+        try {
+            const data = await apiRequest('/api/settings', {
+                method: 'POST',
+                body: JSON.stringify({ changes: [{ key, value }] })
+            });
+            if (data.values) FT.replace(data.values);
+            if (data.rejected && data.rejected.length) {
+                showToast(data.rejected[0].error, 'error');
+                return;
+            }
+            if (!quiet && data.changed && data.changed.length) {
+                showToast(data.summary, 'success', 2600);
+            }
+            applyVisibility();
+        } catch (e) {
+            showToast(e.message, 'error');
+        }
+    }
+
+    document.getElementById('settings-body').addEventListener('change', event => {
+        const el = event.target.closest('[data-key]');
+        if (!el || el.dataset.type === 'multi') return;
+        const key = el.dataset.key;
+
+        if (el.dataset.type === 'bool') return save(key, el.checked);
+        if (el.dataset.type === 'enum') return save(key, el.value);
+        if (el.dataset.type === 'text') return save(key, el.value);
+        if (el.dataset.type === 'int' || el.dataset.type === 'float') return save(key, el.value);
+    });
+
+    // Ranges fire `input` continuously; show the number live but only save
+    // once the user stops moving, so a drag is one request rather than forty.
+    document.getElementById('settings-body').addEventListener('input', event => {
+        const el = event.target.closest('input[type="range"][data-key]');
+        if (!el) return;
+        const setting = window.__SETTINGS_UNITS[el.dataset.key] || '';
+        const readout = document.querySelector(`[data-value-for="${CSS.escape(el.dataset.key)}"]`);
+        if (readout) readout.textContent = el.value + setting;
+        clearTimeout(pending);
+        pending = setTimeout(() => save(el.dataset.key, el.value, { quiet: true }), 350);
+    });
+
+    document.getElementById('settings-body').addEventListener('click', event => {
+        const chip = event.target.closest('.multi-chip');
+        if (!chip) return;
+        const wrap = chip.closest('.multi-control');
+        chip.classList.toggle('on');
+        chip.setAttribute('aria-pressed', chip.classList.contains('on') ? 'true' : 'false');
+        const chosen = Array.from(wrap.querySelectorAll('.multi-chip.on')).map(c => c.dataset.value);
+        save(wrap.dataset.key, chosen, { quiet: true });
+    });
+
+    /* ── Presets, reset, import ──────────────────────────────────── */
+
+    document.querySelectorAll('.preset-card').forEach(card => {
+        card.addEventListener('click', async () => {
+            try {
+                const data = await apiRequest('/api/settings/preset', {
+                    method: 'POST',
+                    body: JSON.stringify({ preset: card.dataset.preset })
+                });
+                showToast(data.summary + ' Reloading to show it.', 'success');
+                setTimeout(() => window.location.reload(), 900);
+            } catch (e) { showToast(e.message, 'error'); }
+        });
+    });
+
+    document.querySelectorAll('[data-reset-group]').forEach(button => {
+        button.addEventListener('click', async () => {
+            const group = button.dataset.resetGroup;
+            if (FT.get('ui.confirm_destructive', true) &&
+                !confirm(`Reset every option under "${group}" to its default?`)) return;
+            try {
+                await apiRequest('/api/settings/reset', {
+                    method: 'POST', body: JSON.stringify({ group })
+                });
+                showToast(`"${group}" restored to defaults. Reloading.`, 'success');
+                setTimeout(() => window.location.reload(), 800);
+            } catch (e) { showToast(e.message, 'error'); }
+        });
+    });
+
+    document.getElementById('reset-all-btn').addEventListener('click', async () => {
+        if (!confirm('Reset every setting in the app to its default? Your training history is not affected.')) return;
+        try {
+            await apiRequest('/api/settings/reset', { method: 'POST', body: '{}' });
+            showToast('All settings restored to defaults. Reloading.', 'success');
+            setTimeout(() => window.location.reload(), 800);
+        } catch (e) { showToast(e.message, 'error'); }
+    });
+
+    const importFile = document.getElementById('import-file');
+    document.getElementById('import-btn').addEventListener('click', () => importFile.click());
+    importFile.addEventListener('change', () => {
+        const file = importFile.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = async () => {
+            let parsed;
+            try {
+                parsed = JSON.parse(reader.result);
+            } catch (e) {
+                showToast('That file is not valid JSON.', 'error');
+                return;
+            }
+            try {
+                const data = await apiRequest('/api/settings/import', {
+                    method: 'POST',
+                    body: JSON.stringify({ settings: parsed.settings || parsed })
+                });
+                const skipped = (data.skipped || []).length;
+                showToast(data.summary + (skipped ? ` ${skipped} unknown setting(s) skipped.` : '') +
+                          ' Reloading.', 'success');
+                setTimeout(() => window.location.reload(), 1100);
+            } catch (e) { showToast(e.message, 'error'); }
+        };
+        reader.readAsText(file);
+        importFile.value = '';
+    });
+
+    /* ── Just ask ────────────────────────────────────────────────── */
+
+    const askForm = document.getElementById('ask-form');
+    if (askForm) {
+        const input = document.getElementById('ask-input');
+        const result = document.getElementById('ask-result');
+        const summaryEl = document.getElementById('ask-summary');
+        const listEl = document.getElementById('ask-proposals');
+        const actionsEl = document.getElementById('ask-actions');
+        let lastProposals = [];
+
+        document.querySelectorAll('.assistant-example').forEach(example => {
+            example.addEventListener('click', () => {
+                input.value = example.textContent.trim();
+                askForm.requestSubmit();
+            });
+        });
+
+        function renderProposals(data) {
+            result.hidden = false;
+            summaryEl.textContent = data.summary || '';
+            listEl.innerHTML = '';
+            actionsEl.innerHTML = '';
+            lastProposals = data.proposals || [];
+
+            lastProposals.forEach(p => {
+                const row = document.createElement('div');
+                row.className = 'proposal';
+
+                const key = document.createElement('span');
+                key.className = 'proposal-key';
+                key.textContent = p.label;
+
+                const old = document.createElement('span');
+                old.className = 'proposal-old';
+                old.textContent = p.previous_label;
+
+                const arrow = document.createElement('span');
+                arrow.className = 'proposal-arrow';
+                arrow.textContent = '→';
+
+                const next = document.createElement('span');
+                next.className = 'proposal-new';
+                next.textContent = p.value_label;
+
+                const group = document.createElement('span');
+                group.className = 'engine-tag';
+                group.textContent = p.group;
+
+                row.append(key, old, arrow, next, group);
+                listEl.appendChild(row);
+            });
+
+            (data.rejected || []).forEach(r => {
+                const row = document.createElement('div');
+                row.className = 'proposal';
+                row.style.color = 'var(--danger)';
+                row.textContent = r.error;
+                listEl.appendChild(row);
+            });
+
+            const engine = document.createElement('span');
+            engine.className = 'engine-badge ' + (data.engine === 'ai' ? 'engine-ai' : 'engine-rules');
+            engine.textContent = data.engine === 'ai' ? 'answered by your local model'
+                                                      : 'answered by the built-in matcher';
+
+            if (data.applied) {
+                actionsEl.append(engine);
+                const reload = document.createElement('button');
+                reload.className = 'btn btn-sm btn-primary';
+                reload.textContent = 'Reload to see it';
+                reload.addEventListener('click', () => window.location.reload());
+                actionsEl.append(reload);
+                return;
+            }
+
+            if (lastProposals.length) {
+                const apply = document.createElement('button');
+                apply.className = 'btn btn-sm btn-primary';
+                apply.textContent = 'Apply';
+                apply.addEventListener('click', () => applyProposals());
+
+                const cancel = document.createElement('button');
+                cancel.className = 'btn btn-sm btn-ghost';
+                cancel.textContent = 'Cancel';
+                cancel.addEventListener('click', () => { result.hidden = true; });
+
+                actionsEl.append(apply, cancel, engine);
+            } else {
+                actionsEl.append(engine);
+            }
+        }
+
+        async function ask(apply) {
+            const query = input.value.trim();
+            if (!query) return;
+            const button = document.getElementById('ask-btn');
+            button.disabled = true;
+            try {
+                const data = await apiRequest('/api/settings/ask', {
+                    method: 'POST',
+                    body: JSON.stringify({ query, apply: !!apply })
+                });
+                renderProposals(data);
+                if (data.applied) {
+                    if (data.values) FT.replace(data.values);
+                    setTimeout(() => window.location.reload(), 1200);
+                }
+            } catch (e) {
+                showToast(e.message, 'error');
+            } finally {
+                button.disabled = false;
+            }
+        }
+
+        function applyProposals() { ask(true); }
+
+        askForm.addEventListener('submit', e => { e.preventDefault(); ask(false); });
+    }
+
+    /* ── Section nav highlighting ────────────────────────────────── */
+
+    const navLinks = Array.from(document.querySelectorAll('.settings-nav a'));
+    if ('IntersectionObserver' in window) {
+        const observer = new IntersectionObserver(entries => {
+            entries.forEach(entry => {
+                if (!entry.isIntersecting) return;
+                const name = entry.target.dataset.group;
+                navLinks.forEach(a => a.classList.toggle('active', a.dataset.group === name));
+            });
+        }, { rootMargin: '-20% 0px -70% 0px' });
+        groups.forEach(g => observer.observe(g));
+    }
+
+    /* ── Arriving from the command palette ───────────────────────── */
+    //
+    // The palette links here as #focus=<key> (show me that switch) or
+    // #ask=<text> (I described something, take it from here).
+
+    (function handleHash() {
+        const hash = decodeURIComponent(window.location.hash.replace(/^#/, ''));
+        if (hash.startsWith('focus=')) {
+            const key = hash.slice(6);
+            const row = document.querySelector(`.setting-row[data-key="${CSS.escape(key)}"]`);
+            if (!row) return;
+            // Search by key so the row shows regardless of the current mode.
+            searchInput.value = key;
+            applyVisibility();
+            row.scrollIntoView({ block: 'center', behavior: FT.get('appearance.reduce_motion', false) ? 'auto' : 'smooth' });
+            row.style.transition = 'background 0.4s ease';
+            row.style.background = 'var(--primary-light)';
+            setTimeout(() => { row.style.background = ''; }, 2200);
+        } else if (hash.startsWith('ask=')) {
+            const askInput = document.getElementById('ask-input');
+            if (!askInput) return;
+            askInput.value = hash.slice(4);
+            askInput.scrollIntoView({ block: 'center' });
+            document.getElementById('ask-form').requestSubmit();
+        }
+    })();
+
+    applyVisibility();
+})();
+</script>
+{% endblock %}
