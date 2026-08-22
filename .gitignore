@@ -56,3 +56,29 @@ logs/
 .env.development.local
 .env.test.local
 .env.production.local
+
+# Local virtualenv variants
+.venv/
+.python-version
+
+# Node (if tooling is ever added)
+node_modules/
+
+# Linter / type-checker caches
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# Agent + editor local state
+.claude/
+*.code-workspace
+
+# Local runtime and scratch files
+*.bak
+*.tmp
+*.orig
+*.rej
+*.pid
+instance/*.db
