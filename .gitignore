@@ -82,3 +82,10 @@ coverage.xml
 *.rej
 *.pid
 instance/*.db
+
+# Local-only docs (kept on disk, not published)
+CLAUDE.md
+DIRECTORY_STRUCTURE.md
+MANUAL_TESTING.md
+PROJECT_SUMMARY.md
+learn/
