@@ -3,12 +3,21 @@
 {% block title %}Dashboard – FitTrack{% endblock %}
 
 {% block content %}
+{# Which cards and stat tiles render is a setting, not a redesign decision:
+   dashboard.cards and dashboard.kpis are lists the user edits in Settings,
+   and everything here checks membership before drawing. #}
+{% set cards = settings['dashboard.cards'] %}
+{% set kpis = settings['dashboard.kpis'] %}
 <div class="dashboard">
 
     <!-- Hero -->
     <div class="hero-section">
+        {% if settings['dashboard.greeting'] == 'name' %}
         <p class="hero-greeting">Welcome back{% if session.get('username') %}, <strong>{{ session.get('username')
                 }}</strong>{% endif %}!</p>
+        {% elif settings['dashboard.greeting'] == 'time' %}
+        <p class="hero-greeting" id="time-greeting">Hello!</p>
+        {% endif %}
         <h1>Your Training Dashboard</h1>
         <p class="subtitle">Track progress, plan sessions, and hit your goals.</p>
         <div class="hero-actions">
@@ -22,44 +31,81 @@
     </div>
 
     <!-- KPI Stats -->
+    {% if kpis %}
     <div class="kpi-grid">
+        {% if 'exercises' in kpis %}
         <div class="kpi-card slide-up" style="animation-delay: 0.1s;">
             <i class="icon-3xl icon-primary" data-lucide="dumbbell" style="margin-bottom:10px;"></i>
             <div class="kpi-value">{{ progress_data.total_exercises or 0 }}</div>
             <div class="kpi-label">Exercises Completed</div>
         </div>
+        {% endif %}
+        {% if 'avg_time' in kpis %}
         <div class="kpi-card slide-up" style="animation-delay: 0.15s;">
             <i class="icon-3xl icon-primary" data-lucide="timer" style="margin-bottom:10px;"></i>
             <div class="kpi-value">{{ progress_data.avg_session_length or 0 }}<span style="font-size:1rem;">m</span></div>
             <div class="kpi-label">Avg Session Time</div>
         </div>
+        {% endif %}
+        {% if 'streak' in kpis %}
         <div class="kpi-card slide-up" style="animation-delay: 0.2s;">
             <i class="icon-3xl icon-danger" data-lucide="flame" style="margin-bottom:10px;"></i>
             <div class="kpi-value">{{ progress_data.current_streak or 0 }}</div>
             <div class="kpi-label">Day Streak</div>
         </div>
+        {% endif %}
+        {% if 'sessions' in kpis %}
         <div class="kpi-card slide-up" style="animation-delay: 0.25s;">
             <i class="icon-3xl icon-success" data-lucide="trending-up" style="margin-bottom:10px;"></i>
             <div class="kpi-value">{{ progress_data.total_sessions or 0 }}</div>
             <div class="kpi-label">Total Sessions</div>
         </div>
+        {% endif %}
+        {% if 'minutes' in kpis %}
+        <div class="kpi-card slide-up" style="animation-delay: 0.3s;">
+            <i class="icon-3xl icon-primary" data-lucide="clock" style="margin-bottom:10px;"></i>
+            <div class="kpi-value">{{ progress_data.total_minutes or 0 }}<span style="font-size:1rem;">m</span></div>
+            <div class="kpi-label">Total Minutes</div>
+        </div>
+        {% endif %}
+        {% if 'goal' in kpis and progress_data.goal and progress_data.goal.enabled %}
+        <div class="kpi-card slide-up" style="animation-delay: 0.35s;">
+            <i class="icon-3xl icon-success" data-lucide="target" style="margin-bottom:10px;"></i>
+            <div class="kpi-value">{{ progress_data.goal.sessions_pct }}<span style="font-size:1rem;">%</span></div>
+            <div class="kpi-label">Weekly Goal</div>
+        </div>
+        {% endif %}
     </div>
+    {% endif %}
 
     <!-- Main grid -->
     <div class="dashboard-grid">
 
+        {% if 'today' in cards %}
         <!-- Today's Session (left, wide) -->
         <div class="today-session-card" style="animation-delay:0.2s">
             <div class="section-heading">
                 <h2><i data-lucide="target"></i> Today's Session</h2>
                 <a href="{{ url_for('planner') }}">Custom plan →</a>
             </div>
-            {% if today_session %}
+            {% if rest_day_today %}
+            <h3 style="font-family:var(--font-head);font-size:1.3rem;color:var(--text);margin-bottom:8px;">
+                Planned rest day 🛋️
+            </h3>
+            <p style="color:var(--text-muted);margin-bottom:14px;">
+                {{ rest_day_today }} is one of your rest days, so nothing is scheduled — and your
+                streak is safe. Feel like moving anyway? A light session never hurts.
+            </p>
+            <a href="{{ url_for('planner') }}" class="btn btn-outline">Plan a light session</a>
+            {% elif today_session %}
             <h3 style="font-family:var(--font-head);font-size:1.3rem;color:var(--text);margin-bottom:8px;">
                 {{ today_session.name }}
             </h3>
             <p style="color:var(--text-muted);margin-bottom:14px;">{{ today_session.description }}</p>
             <div class="session-meta-row" style="gap:8px;">
+                {% if today_session.week %}
+                <span class="session-meta-chip"><i class="icon-sm" data-lucide="calendar" ></i> Week {{ today_session.week }} of 4</span>
+                {% endif %}
                 <span class="session-meta-chip"><i class="icon-sm" data-lucide="clock" ></i> {{ today_session.duration }} min</span>
                 <span class="session-meta-chip"><i class="icon-sm" data-lucide="activity" ></i> {{ today_session.difficulty }}</span>
                 {% if today_session.focus %}
@@ -77,7 +123,9 @@
             <a href="{{ url_for('planner') }}" class="btn btn-primary">Plan Workout</a>
             {% endif %}
         </div>
+        {% endif %}
 
+        {% if 'quick_actions' in cards %}
         <!-- Quick Actions (right, narrow) -->
         <div class="dashboard-card slide-up" style="animation-delay: 0.35s;">
             <div class="dashboard-card-header">
@@ -88,10 +136,6 @@
                     <i class="icon-xl icon-primary" data-lucide="calendar" style="margin-bottom:8px;"></i>
                     Plan Session
                 </a>
-                <a href="{{ url_for('planner') }}" class="quick-action-btn">
-                    <i class="icon-xl icon-primary" data-lucide="plus" style="margin-bottom:8px;"></i>
-                    Add Custom
-                </a>
                 <a href="{{ url_for('library') }}" class="quick-action-btn">
                     <i class="icon-xl icon-primary" data-lucide="library" style="margin-bottom:8px;"></i>
                     Library
@@ -100,6 +144,10 @@
                     <i class="icon-xl icon-primary" data-lucide="trending-up" style="margin-bottom:8px;"></i>
                     View Progress
                 </a>
+                <a href="{{ url_for('settings_page') }}" class="quick-action-btn">
+                    <i class="icon-xl icon-primary" data-lucide="settings" style="margin-bottom:8px;"></i>
+                    Settings
+                </a>
             </div>
             {% if not session.get('username') %}
             <div class="divider"></div>
@@ -107,7 +155,49 @@
                 Progress</a>
             {% endif %}
         </div>
+        {% endif %}
 
+        {% if 'goals' in cards and progress_data.goal and progress_data.goal.enabled %}
+        {% set goal = progress_data.goal %}
+        <!-- Weekly goal -->
+        <div class="card full-width slide-up">
+            <div class="section-heading">
+                <h2>🎯 This Week's Goal</h2>
+                <a href="{{ url_for('settings_page') }}#focus=goals.weekly_sessions">Adjust →</a>
+            </div>
+            <div class="goal-card">
+                {% if goal.target_sessions %}
+                <div class="goal-ring">
+                    <svg viewBox="0 0 108 108">
+                        <circle class="gr-track" cx="54" cy="54" r="46"></circle>
+                        <circle class="gr-fill" cx="54" cy="54" r="46"
+                                stroke-dasharray="289"
+                                stroke-dashoffset="{{ 289 - (289 * goal.sessions_pct / 100) }}"></circle>
+                    </svg>
+                    <div class="goal-ring-center">
+                        <span class="goal-ring-value">{{ goal.sessions }}/{{ goal.target_sessions }}</span>
+                        <span class="goal-ring-label">sessions</span>
+                    </div>
+                </div>
+                {% endif %}
+                <div class="goal-detail">
+                    {% if goal.target_sessions %}
+                    <p style="font-size:0.9rem;color:var(--text);">
+                        <strong>{{ goal.sessions }}</strong> of {{ goal.target_sessions }} sessions this week
+                        {% if goal.sessions_pct >= 100 %} — goal hit! 🎉{% endif %}
+                    </p>
+                    {% endif %}
+                    {% if goal.target_minutes %}
+                    <p style="font-size:0.82rem;color:var(--text-muted);margin-top:10px;">
+                        {{ goal.minutes }} of {{ goal.target_minutes }} minutes</p>
+                    <div class="goal-bar"><div class="goal-bar-fill" style="width:{{ goal.minutes_pct }}%"></div></div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if 'saved' in cards %}
         <!-- Saved Workout Templates -->
         <div class="card full-width slide-up" id="saved-workouts-card" style="display:none;">
             <div class="section-heading">
@@ -117,7 +207,28 @@
                 <!-- Templates loaded via JS -->
             </div>
         </div>
+        {% endif %}
 
+        {% if 'heatmap' in cards %}
+        <!-- Activity heatmap -->
+        <div class="card full-width slide-up">
+            <div class="section-heading">
+                <h2>🗓️ Last 12 Weeks</h2>
+            </div>
+            <div class="heatmap" id="dash-heatmap"></div>
+            <div class="heatmap-legend">
+                <span>less</span>
+                <span class="heatmap-cell" data-level="0"></span>
+                <span class="heatmap-cell" data-level="1"></span>
+                <span class="heatmap-cell" data-level="2"></span>
+                <span class="heatmap-cell" data-level="3"></span>
+                <span class="heatmap-cell" data-level="4"></span>
+                <span>more</span>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if 'recent' in cards %}
         <!-- Recent Activity -->
         <div class="card full-width" style="animation-delay:0.3s">
             <div class="section-heading">
@@ -133,7 +244,7 @@
                         <div class="activity-name">{{ s.session_type }}</div>
                     </div>
                     <span class="badge badge-primary">{{ s.total_duration }} min</span>
-                    <div class="activity-date">{{ s.session_date }}</div>
+                    <div class="activity-date" data-date="{{ s.session_date }}">{{ s.session_date }}</div>
                 </div>
                 {% endfor %}
             </div>
@@ -144,6 +255,7 @@
             </div>
             {% endif %}
         </div>
+        {% endif %}
 
     </div>
 </div>
@@ -153,20 +265,49 @@
 <script>
     let savedWorkouts = [];
 
-    // Hero date
+    // Hero date + optional time-of-day greeting
     (function () {
         const d = new Date();
         const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
         const heroDay = document.getElementById('hero-day');
         const heroDate = document.getElementById('hero-date');
         if (heroDay) heroDay.textContent = days[d.getDay()];
-        if (heroDate) heroDate.textContent = months[d.getMonth()] + ' ' + d.getDate();
+        if (heroDate) heroDate.textContent = formatDate(d);
+
+        const greeting = document.getElementById('time-greeting');
+        if (greeting) {
+            const h = d.getHours();
+            greeting.textContent = h < 5 ? 'Up late?' : h < 12 ? 'Good morning!' :
+                                   h < 18 ? 'Good afternoon!' : 'Good evening!';
+        }
+
+        // Dates respect the units.date_format setting
+        document.querySelectorAll('.activity-date[data-date]').forEach(el => {
+            el.textContent = formatDate(el.dataset.date);
+        });
     })();
 
     function startTodaySession(type, duration, intensity, focus) {
         const btn = document.getElementById('start-today-btn');
-        if (btn) { btn.textContent = 'Generating…'; btn.disabled = true; }
+        if (btn) { btn.textContent = 'Loading…'; btn.disabled = true; }
+
+        // Try the exact program prescription for today first; freeform program
+        // days (circuits, mixed sessions) fall back to the AI generator below.
+        fetch('/api/today-workout', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    sessionStorage.setItem('currentWorkout', JSON.stringify(data));
+                    window.location.href = '/session';
+                } else {
+                    generateTodaySession(type, duration, intensity, focus, btn);
+                }
+            })
+            .catch(() => generateTodaySession(type, duration, intensity, focus, btn));
+    }
+
+    function generateTodaySession(type, duration, intensity, focus, btn) {
+        if (btn) { btn.textContent = 'Generating…'; }
 
         let difficulty = 'beginner';
         if (intensity.toLowerCase().includes('high') || intensity.toLowerCase().includes('max')) {
@@ -214,8 +355,66 @@
             });
     }
 
-    // Load saved templates on startup
-    document.addEventListener('DOMContentLoaded', loadSavedWorkoutTemplates);
+    document.addEventListener('DOMContentLoaded', function () {
+        if (document.getElementById('saved-workouts-card')) loadSavedWorkoutTemplates();
+        if (document.getElementById('dash-heatmap')) loadHeatmap();
+    });
+
+    // ── Activity heatmap ──────────────────────────────────────
+    //
+    // GitHub-style: one column per week, one row per weekday, colour by
+    // minutes trained. Weeks start on the day units.week_start says.
+
+    function loadHeatmap() {
+        fetch('/api/activity-heatmap')
+            .then(r => r.json())
+            .then(data => {
+                if (!data.success) return;
+                renderHeatmap(data.days || {});
+            })
+            .catch(() => {});
+    }
+
+    function renderHeatmap(byDate) {
+        const container = document.getElementById('dash-heatmap');
+        const weekStartSetting = FT.get('units.week_start', 'monday');
+        const startOffset = { monday: 1, sunday: 0, saturday: 6 }[weekStartSetting] ?? 1;
+
+        const today = new Date();
+        // Walk back to the start of the current week, then 11 more weeks.
+        const currentDow = (today.getDay() - startOffset + 7) % 7;
+        const gridStart = new Date(today);
+        gridStart.setDate(today.getDate() - currentDow - 7 * 11);
+
+        const rows = [];
+        for (let dow = 0; dow < 7; dow++) {
+            const row = document.createElement('div');
+            row.className = 'heatmap-row';
+            rows.push(row);
+        }
+
+        for (let week = 0; week < 12; week++) {
+            for (let dow = 0; dow < 7; dow++) {
+                const day = new Date(gridStart);
+                day.setDate(gridStart.getDate() + week * 7 + dow);
+                const key = day.getFullYear() + '-' +
+                    String(day.getMonth() + 1).padStart(2, '0') + '-' +
+                    String(day.getDate()).padStart(2, '0');
+                const minutes = byDate[key] || 0;
+                const cell = document.createElement('span');
+                cell.className = 'heatmap-cell';
+                const level = minutes === 0 ? 0 : minutes < 10 ? 1 : minutes < 20 ? 2 : minutes < 35 ? 3 : 4;
+                cell.setAttribute('data-level', level);
+                cell.title = formatDate(day) + ': ' + minutes + ' min';
+                if (day > today) cell.style.visibility = 'hidden';
+                rows[dow].appendChild(cell);
+            }
+        }
+        container.innerHTML = '';
+        rows.forEach(r => container.appendChild(r));
+    }
+
+    // ── Saved templates ───────────────────────────────────────
 
     function loadSavedWorkoutTemplates() {
         fetch('/api/workouts/saved')
@@ -227,14 +426,14 @@
                     card.style.display = 'block';
                     const list = document.getElementById('saved-templates-list');
                     list.innerHTML = '';
-                    
+
                     data.saved_workouts.forEach((w, idx) => {
                         const div = document.createElement('div');
                         div.className = 'card-flat saved-template-card';
-                        
+
                         const exercisesList = w.exercises.map(e => e.name).join(', ');
                         const shortList = exercisesList.length > 80 ? exercisesList.substring(0, 80) + '...' : exercisesList;
-                        
+
                         div.innerHTML = `
                             <div>
                                 <h3 class="saved-template-title">${escapeHtml(w.workout_name)}</h3>
@@ -250,7 +449,7 @@
                         `;
                         list.appendChild(div);
                     });
-                    lucide.createIcons({ root: list });
+                    if (window.lucide) lucide.createIcons({ root: list });
                 }
             })
             .catch(err => console.error('Error fetching templates:', err));
@@ -259,7 +458,7 @@
     function startSavedWorkout(idx) {
         const w = savedWorkouts[idx];
         if (!w) return;
-        
+
         const workoutSession = {
             success: true,
             sessionType: w.workout_name,
@@ -269,7 +468,7 @@
             difficulty: w.difficulty,
             workout_id: 'saved_' + w.id + '_' + Date.now()
         };
-        
+
         sessionStorage.setItem('currentWorkout', JSON.stringify(workoutSession));
         window.location.href = '/session';
     }

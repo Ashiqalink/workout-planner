@@ -40,13 +40,20 @@
                         style="display:none;align-items:center;gap:8px;"><i class="icon-xl icon-fill" data-lucide="play" ></i> Start Workout</button>
                     <div id="no-workout-actions" style="display:none;">
                         <a href="/planner" class="btn btn-primary">Create Workout</a>
-                        <a href="/" class="btn btn-secondary" style="margin-left:8px;">Dashboard</a>
+                        <a href="/dashboard" class="btn btn-secondary" style="margin-left:8px;">Dashboard</a>
                     </div>
                 </div>
             </div>
 
             <!-- Exercise timer (hidden until started) -->
-            <div class="timer-card hidden" id="exercise-screen">
+            <div class="timer-card hidden" id="exercise-screen" style="position:relative;">
+                <!-- Get-ready countdown, drawn over the timer card -->
+                <div class="prep-overlay" id="prep-overlay" hidden>
+                    <div class="prep-label" id="prep-name"></div>
+                    <div class="prep-count" id="prep-count">5</div>
+                    <div class="prep-label">get ready</div>
+                </div>
+
                 <div class="session-progress-bar" style="margin-bottom:20px;">
                     <div class="session-progress-fill" id="ex-progress" style="width:0%"></div>
                 </div>
@@ -64,9 +71,19 @@
                     </div>
                 </div>
                 <div class="timer-controls">
-                    <button class="btn btn-secondary" onclick="skipCurrentExercise()" style="display:flex;align-items:center;gap:6px;"><i class="icon-md" data-lucide="skip-forward" ></i> Skip</button>
+                    <button class="btn btn-secondary" id="skip-btn" onclick="skipCurrentExercise()" style="display:flex;align-items:center;gap:6px;"><i class="icon-md" data-lucide="skip-forward" ></i> Skip</button>
                 </div>
                 <div style="margin-top:12px;" id="ex-instructions"></div>
+
+                <!-- Set logging — appears only when session.tracking_mode wants it -->
+                <div class="set-logger" id="set-logger" hidden>
+                    <div class="set-logger-head">
+                        <span id="set-logger-title">Log your sets</span>
+                        <span id="set-logger-unit"></span>
+                    </div>
+                    <div class="set-rows" id="set-rows"></div>
+                    <button type="button" class="set-add" id="set-add">+ Add set</button>
+                </div>
             </div>
 
             <!-- Rest screen (hidden) -->
@@ -88,8 +105,20 @@
                         </div>
                     </div>
                     <div class="rest-actions">
-                        <button class="btn btn-outline" onclick="skipRest()" style="display:flex;align-items:center;gap:6px;"><i class="icon-md" data-lucide="skip-forward" ></i> Skip Rest</button>
+                        <button class="btn btn-outline" id="skip-rest-btn" onclick="skipRest()" style="display:flex;align-items:center;gap:6px;"><i class="icon-md" data-lucide="skip-forward" ></i> Skip Rest</button>
                     </div>
+                </div>
+            </div>
+
+            <!-- Waiting for a tap — timers.auto_advance off -->
+            <div class="timer-card hidden" id="advance-screen">
+                <div style="text-align:center;padding:20px;">
+                    <i class="icon-5xl icon-success" data-lucide="check-circle-2" style="margin:0 auto 14px;display:block;"></i>
+                    <h2 style="font-family:var(--font-head);font-size:1.5rem;color:var(--text);margin-bottom:6px;" id="advance-title">Done!</h2>
+                    <p style="color:var(--text-muted);margin-bottom:18px;" id="advance-sub"></p>
+                    <button class="btn btn-primary btn-lg" onclick="confirmAdvance()" style="display:inline-flex;align-items:center;gap:8px;">
+                        <i class="icon-lg icon-fill" data-lucide="play"></i> Continue
+                    </button>
                 </div>
             </div>
 
@@ -114,11 +143,18 @@
                     <span class="stat-label">Completion</span>
                 </div>
             </div>
+
+            <!-- How hard was it? (session.rpe_prompt) -->
+            <div id="rpe-block" hidden style="margin:6px 0 14px;">
+                <p style="font-size:0.88rem;color:var(--text-muted);margin-bottom:8px;">How hard did that feel?</p>
+                <div id="rpe-scale" style="display:flex;gap:5px;justify-content:center;flex-wrap:wrap;"></div>
+            </div>
+
             <div class="completion-actions">
                 <button class="btn btn-primary btn-lg" id="save-btn" onclick="saveSessionData()" style="display:flex;align-items:center;gap:8px;">
                     <i class="icon-xl" data-lucide="save" ></i> Save Progress
                 </button>
-                <a href="/" class="btn btn-secondary">Dashboard</a>
+                <a href="/dashboard" class="btn btn-secondary">Dashboard</a>
                 <a href="/progress" class="btn btn-outline">View Progress →</a>
             </div>
         </div>
@@ -150,22 +186,51 @@
 <script>
     let currentWorkout = null;
     let currentIdx = 0;
-    let sessionTimer = null, exerciseTimer = null, restTimer = null;
+    let sessionTimer = null, exerciseTimer = null, restTimer = null, prepTimer = null;
     let sessionStart = null;
     let isPaused = false;
     let pausedDuration = 0;
     let pauseStarted = null;
     let restTimes = {};
+    let exerciseStartMs = 0;      // for the "elapsed"/"both" timer display
+    let setLogs = [];             // {name, category, set, reps, weight} rows this session
+    let chosenRpe = null;
     let sessionData = {
         exercises: [], startTime: null, endTime: null,
         totalDuration: 0, completedExercises: 0,
         domainProgress: {}, sessionType: 'custom', difficulty: 'beginner'
     };
 
+    // Every behaviour switch is read once here, so the rest of the file says
+    // what it is doing rather than which setting it is reading.
+    const CFG = {
+        prepSeconds:     FT.get('timers.prep_seconds', 5),
+        autoAdvance:     FT.get('timers.auto_advance', true),
+        warningSeconds:  FT.get('timers.warning_seconds', 3),
+        display:         FT.get('timers.display', 'remaining'),
+        restSource:      FT.get('timers.rest_source', 'auto'),
+        fixedRest:       FT.get('timers.fixed_rest_seconds', 30),
+        restMultiplier:  FT.get('timers.rest_multiplier', 100) / 100,
+        tracking:        FT.get('session.tracking_mode', 'timer'),
+        defaultSets:     FT.get('session.default_sets', 3),
+        defaultReps:     FT.get('session.default_reps', 10),
+        showInstructions:FT.get('session.show_instructions', true),
+        showNextUp:      FT.get('session.show_next_up', true),
+        showSidebar:     FT.get('session.show_sidebar', true),
+        allowSkip:       FT.get('session.allow_skip', true),
+        autosave:        FT.get('session.autosave', false),
+        askRpe:          FT.get('session.rpe_prompt', false),
+        confirmStop:     FT.get('ui.confirm_destructive', true)
+    };
+
     // ─── Init ─────────────────────────────────────────────────
     document.addEventListener('DOMContentLoaded', function () {
         loadRestTimes();
         loadWorkout();
+        if (!CFG.allowSkip) {
+            document.getElementById('skip-btn').style.display = 'none';
+            document.getElementById('skip-rest-btn').style.display = 'none';
+        }
     });
 
     async function loadRestTimes() {
@@ -179,18 +244,25 @@
     function loadWorkout() {
         const stored = sessionStorage.getItem('currentWorkout');
         if (!stored) {
-            document.getElementById('welcome-title').textContent = 'No Workout Planned';
-            document.getElementById('welcome-sub').textContent = 'Go to the Planner to create a workout first.';
-            document.getElementById('no-workout-actions').style.display = 'flex';
-            document.getElementById('no-workout-actions').style.justifyContent = 'center';
-            document.getElementById('no-workout-actions').style.gap = '10px';
+            showNoWorkout();
             return;
         }
-        currentWorkout = JSON.parse(stored);
+        try {
+            currentWorkout = JSON.parse(stored);
+            if (!currentWorkout || !Array.isArray(currentWorkout.exercises) || currentWorkout.exercises.length === 0) {
+                throw new Error('Workout has no exercises');
+            }
+        } catch (err) {
+            console.error('Stored workout is invalid, clearing it:', err);
+            sessionStorage.removeItem('currentWorkout');
+            currentWorkout = null;
+            showNoWorkout();
+            return;
+        }
         const n = currentWorkout.exercises.length;
         const d = parseFloat(currentWorkout.total_duration).toFixed(1);
 
-        document.getElementById('session-title').innerHTML = '<i class="icon-xl icon-inline" data-lucide="activity" style="margin-right:8px;"></i> ' + (currentWorkout.sessionType || 'Custom Workout');
+        document.getElementById('session-title').innerHTML = '<i class="icon-xl icon-inline" data-lucide="activity" style="margin-right:8px;"></i> ' + escapeHtml(currentWorkout.sessionType || 'Custom Workout');
         document.getElementById('welcome-title').textContent = 'Ready to Train!';
         document.getElementById('welcome-sub').textContent = 'Check your space and warm up, then hit Start.';
 
@@ -198,12 +270,22 @@
         chips.innerHTML = [
             `<span class="session-meta-chip"><i class="icon-sm" data-lucide="dumbbell" ></i> ${n} exercises</span>`,
             `<span class="session-meta-chip"><i class="icon-sm" data-lucide="clock" ></i> ~${d} min</span>`,
-            `<span class="session-meta-chip"><i class="icon-sm" data-lucide="activity" ></i> ${currentWorkout.difficulty || 'Custom'}</span>`
+            `<span class="session-meta-chip"><i class="icon-sm" data-lucide="activity" ></i> ${escapeHtml(currentWorkout.difficulty || 'Custom')}</span>`,
+            currentWorkout.engine ? `<span class="engine-badge engine-${currentWorkout.engine === 'ai' ? 'ai' : 'rules'}">${currentWorkout.engine === 'ai' ? '✨ AI-built' : 'rule-built'}</span>` : ''
         ].join('');
-        lucide.createIcons({ root: chips });
+        if (window.lucide) lucide.createIcons({ root: chips });
         document.getElementById('start-btn').style.display = 'inline-flex';
 
         buildSidebar();
+    }
+
+    function showNoWorkout() {
+        document.getElementById('welcome-title').textContent = 'No Workout Planned';
+        document.getElementById('welcome-sub').textContent = 'Go to the Planner to create a workout first.';
+        const actions = document.getElementById('no-workout-actions');
+        actions.style.display = 'flex';
+        actions.style.justifyContent = 'center';
+        actions.style.gap = '10px';
     }
 
     function buildSidebar() {
@@ -222,6 +304,9 @@
     // ─── Session Control ──────────────────────────────────────
     function startSession() {
         if (!currentWorkout) return;
+        Cues.unlock();               // audio needs a user gesture; this is it
+        WakeLock.acquire();
+
         sessionData.startTime = new Date();
         sessionData.exercises = currentWorkout.exercises;
         sessionData.sessionType = currentWorkout.sessionType || 'custom';
@@ -235,7 +320,7 @@
         sessionStart = Date.now();
         hide('welcome-screen');
         show('exercise-screen');
-        show('session-sidebar');
+        if (CFG.showSidebar) show('session-sidebar');
         document.getElementById('session-progress-wrap').style.display = 'block';
         document.getElementById('session-progress-info').style.display = 'flex';
         document.getElementById('pause-btn').style.display = 'inline-flex';
@@ -251,6 +336,7 @@
         const ex = currentWorkout.exercises[idx];
 
         hide('rest-screen');
+        hide('advance-screen');
         show('exercise-screen');
 
         document.getElementById('ex-name').textContent = ex.name;
@@ -260,18 +346,18 @@
             ex.difficulty ? `<span class="badge badge-${escapeHtml(ex.difficulty)}">${escapeHtml(ex.difficulty)}</span>` : ''
         ].join(' ');
 
-        if (ex.instructions) {
+        if (CFG.showInstructions && ex.instructions) {
             document.getElementById('ex-instructions').innerHTML =
                 `<p style="font-size:0.85rem;color:var(--text-muted);text-align:center;">${escapeHtml(ex.instructions)}</p>`;
         } else {
             document.getElementById('ex-instructions').innerHTML = '';
         }
 
+        buildSetLogger(ex);
+
         // Update sidebar
         document.querySelectorAll('.session-list-item').forEach((el, i) => {
             el.classList.remove('active', 'completed');
-            el.querySelector('.session-list-num').style.background = '';
-            el.querySelector('.session-list-num').style.color = '';
             if (i < idx) el.classList.add('completed');
             else if (i === idx) el.classList.add('active');
         });
@@ -282,26 +368,77 @@
         document.getElementById('exercise-progress').textContent = `${idx} / ${currentWorkout.exercises.length} exercises`;
         document.getElementById('progress-text').textContent = Math.round(pct) + '% Complete';
 
-        startExerciseTimer(ex.duration * 60);
+        announce(ex.name);
+
+        // The get-ready countdown runs before the exercise clock starts, so
+        // "Plank, 60s" is sixty seconds of plank, not fifty-five.
+        runPrepCountdown(ex, () => startExerciseTimer(ex.duration * 60));
+    }
+
+    function runPrepCountdown(ex, done) {
+        if (prepTimer) clearInterval(prepTimer);
+        const overlay = document.getElementById('prep-overlay');
+        if (!CFG.prepSeconds || CFG.prepSeconds <= 0) {
+            overlay.hidden = true;
+            done();
+            return;
+        }
+        let left = Math.round(CFG.prepSeconds);
+        overlay.hidden = false;
+        document.getElementById('prep-name').textContent = ex.name;
+        document.getElementById('prep-count').textContent = left;
+
+        prepTimer = setInterval(() => {
+            if (isPaused) return;
+            left--;
+            if (left <= 0) {
+                clearInterval(prepTimer);
+                overlay.hidden = true;
+                Cues.transition();
+                done();
+                return;
+            }
+            document.getElementById('prep-count').textContent = left;
+            if (left <= 3) Cues.tick();
+        }, 1000);
     }
 
     function startExerciseTimer(totalSec) {
         if (exerciseTimer) clearInterval(exerciseTimer);
         let left = Math.round(totalSec);
         const full = left;
-        updateRing('ring-fill', left, full);
-        document.getElementById('ex-timer').textContent = fmtTime(left);
+        exerciseStartMs = Date.now();
+        renderExerciseClock(left, full);
 
         exerciseTimer = setInterval(() => {
             if (isPaused) return;
             left--;
-            updateRing('ring-fill', left, full);
-            document.getElementById('ex-timer').textContent = fmtTime(left);
-            if (left <= 0) { clearInterval(exerciseTimer); onExerciseDone(); }
+            renderExerciseClock(left, full);
+            if (left > 0 && left <= CFG.warningSeconds) Cues.tick();
+            if (left <= 0) { clearInterval(exerciseTimer); Cues.transition(); onExerciseDone(); }
         }, 1000);
     }
 
+    function renderExerciseClock(left, full) {
+        updateRing('ring-fill', left, full);
+        const el = document.getElementById('ex-timer');
+        const label = document.getElementById('ex-timer-label');
+        const elapsed = full - left;
+        if (CFG.display === 'elapsed') {
+            el.textContent = fmtTime(elapsed);
+            label.textContent = 'elapsed';
+        } else if (CFG.display === 'both') {
+            el.textContent = fmtTime(left);
+            label.textContent = fmtTime(elapsed) + ' elapsed';
+        } else {
+            el.textContent = fmtTime(left);
+            label.textContent = 'remaining';
+        }
+        el.classList.toggle('ending', CFG.warningSeconds > 0 && left > 0 && left <= CFG.warningSeconds);
+    }
+
     function onExerciseDone() {
+        collectSetLogs();
         const ex = currentWorkout.exercises[currentIdx];
         const dk = domainKey(ex.category);
         if (dk && sessionData.domainProgress[dk]) {
@@ -310,31 +447,59 @@
         }
         sessionData.completedExercises++;
 
-        if (currentIdx + 1 < currentWorkout.exercises.length) {
+        const isLast = currentIdx + 1 >= currentWorkout.exercises.length;
+        if (isLast) { completeSession(); return; }
+
+        if (CFG.autoAdvance) {
             startRestTimer();
         } else {
-            completeSession();
+            // Manual mode: rest is still shown as a suggestion, but nothing
+            // moves until the user says so.
+            showAdvanceScreen(ex);
         }
     }
 
-    function startRestTimer() {
-        const ex = currentWorkout.exercises[currentIdx];
+    function showAdvanceScreen(doneEx) {
+        hide('exercise-screen');
+        show('advance-screen');
         const nextEx = currentWorkout.exercises[currentIdx + 1];
-        const cat = ex.category;
-        const diffK = (currentWorkout.difficulty || 'beginner').toLowerCase();
+        document.getElementById('advance-title').textContent = doneEx.name + ' done!';
+        document.getElementById('advance-sub').textContent =
+            nextEx ? 'Next up: ' + nextEx.name + '. Take the rest you need.' : '';
+    }
+
+    function confirmAdvance() {
+        hide('advance-screen');
+        startRestTimer();
+    }
+
+    function restSecondsFor(ex) {
+        if (CFG.restSource === 'none') return 0;
+        if (CFG.restSource === 'fixed') return Math.max(0, CFG.fixedRest);
+
         const catMap = {
             'Strength': 'Strength & Power', 'Strength & Power': 'Strength & Power',
             'Speed': 'Speed & Mobility', 'Speed & Mobility': 'Speed & Mobility', 'Mobility': 'Speed & Mobility',
             'Endurance': 'Endurance', 'Agility': 'Agility', 'Cognitive': 'Cognition', 'Cognition': 'Cognition'
         };
-        const mapped = catMap[cat] || cat;
-        let restSec = 30;
-        if (restTimes[mapped] && restTimes[mapped][diffK]) restSec = restTimes[mapped][diffK];
+        const mapped = catMap[ex.category] || ex.category;
+        const diffK = (currentWorkout.difficulty || 'beginner').toLowerCase();
+        let sec = 30;
+        if (restTimes[mapped] && restTimes[mapped][diffK]) sec = restTimes[mapped][diffK];
+        return Math.round(sec * CFG.restMultiplier);
+    }
+
+    function startRestTimer() {
+        const ex = currentWorkout.exercises[currentIdx];
+        const nextEx = currentWorkout.exercises[currentIdx + 1];
+        const restSec = restSecondsFor(ex);
+
+        if (restSec <= 0) { startExercise(currentIdx + 1); return; }
 
         hide('exercise-screen');
         show('rest-screen');
         document.getElementById('next-exercise-label').textContent =
-            nextEx ? 'Next: ' + nextEx.name : 'Last exercise done!';
+            CFG.showNextUp ? (nextEx ? 'Next: ' + nextEx.name : 'Last exercise done!') : '';
 
         if (restTimer) clearInterval(restTimer);
         let left = restSec;
@@ -347,7 +512,8 @@
             left--;
             updateRing('rest-ring-fill', left, full);
             document.getElementById('rest-timer').textContent = fmtTime(left);
-            if (left <= 0) { clearInterval(restTimer); startExercise(currentIdx + 1); }
+            if (left > 0 && left <= CFG.warningSeconds) Cues.tick();
+            if (left <= 0) { clearInterval(restTimer); Cues.transition(); startExercise(currentIdx + 1); }
         }, 1000);
     }
 
@@ -357,17 +523,103 @@
     }
 
     function skipCurrentExercise() {
+        if (prepTimer) clearInterval(prepTimer);
+        document.getElementById('prep-overlay').hidden = true;
         if (exerciseTimer) clearInterval(exerciseTimer);
         onExerciseDone();
     }
 
+    // ─── Set logging ──────────────────────────────────────────
+    //
+    // Rendered only when session.tracking_mode asks for more than the timer.
+    // Rows are collected when the exercise ends and posted with the session.
+
+    function buildSetLogger(ex) {
+        const logger = document.getElementById('set-logger');
+        if (CFG.tracking === 'timer') { logger.hidden = true; return; }
+
+        const withSets = CFG.tracking !== 'reps';
+        const withWeight = CFG.tracking === 'sets_reps_weight';
+        logger.hidden = false;
+        document.getElementById('set-logger-title').textContent =
+            withWeight ? 'Log sets, reps and weight' : (withSets ? 'Log sets and reps' : 'Log reps');
+        document.getElementById('set-logger-unit').textContent = withWeight ? weightUnit() : '';
+
+        const rows = document.getElementById('set-rows');
+        rows.innerHTML = '';
+        const count = withSets ? CFG.defaultSets : 1;
+        for (let i = 0; i < count; i++) addSetRow(withWeight);
+
+        const addBtn = document.getElementById('set-add');
+        addBtn.style.display = withSets ? '' : 'none';
+        addBtn.onclick = () => addSetRow(withWeight);
+    }
+
+    function addSetRow(withWeight) {
+        const rows = document.getElementById('set-rows');
+        const index = rows.children.length + 1;
+        const row = document.createElement('div');
+        row.className = 'set-row';
+
+        const num = document.createElement('div');
+        num.className = 'set-num';
+        num.textContent = index;
+
+        const reps = document.createElement('input');
+        reps.type = 'number'; reps.min = '0'; reps.inputMode = 'numeric';
+        reps.placeholder = CFG.defaultReps;
+        reps.setAttribute('data-role', 'reps');
+        reps.setAttribute('aria-label', 'Reps for set ' + index);
+
+        row.append(num, reps);
+
+        if (withWeight) {
+            const weight = document.createElement('input');
+            weight.type = 'number'; weight.min = '0'; weight.step = '0.5'; weight.inputMode = 'decimal';
+            weight.placeholder = '0';
+            weight.setAttribute('data-role', 'weight');
+            weight.setAttribute('aria-label', 'Weight for set ' + index);
+            const unit = document.createElement('span');
+            unit.className = 'set-unit';
+            unit.textContent = weightUnit();
+            row.append(weight, unit);
+        }
+        rows.appendChild(row);
+    }
+
+    function collectSetLogs() {
+        if (CFG.tracking === 'timer') return;
+        const ex = currentWorkout.exercises[currentIdx];
+        document.querySelectorAll('#set-rows .set-row').forEach((row, i) => {
+            const reps = parseInt(row.querySelector('[data-role="reps"]')?.value, 10);
+            const weightEl = row.querySelector('[data-role="weight"]');
+            const weight = weightEl ? parseFloat(weightEl.value) : NaN;
+            if (!reps && !weight) return;   // untouched row — nothing to record
+            setLogs.push({
+                name: ex.name, category: ex.category, set: i + 1,
+                reps: isNaN(reps) ? null : reps,
+                weight: isNaN(weight) ? null : weight
+            });
+        });
+    }
+
     function completeSession() {
+        // If the session is stopped while paused, fold the in-flight pause into
+        // pausedDuration so the elapsed-time math stays correct.
+        if (isPaused && pauseStarted) {
+            pausedDuration += Date.now() - pauseStarted;
+            pauseStarted = null;
+            isPaused = false;
+        }
+        WakeLock.release();
+        Cues.finish();
+
         sessionData.endTime = new Date();
         sessionData.totalDuration = Math.max(1, Math.floor((sessionData.endTime - sessionData.startTime - pausedDuration) / 60000));
 
-        [sessionTimer, exerciseTimer, restTimer].forEach(t => t && clearInterval(t));
+        [sessionTimer, exerciseTimer, restTimer, prepTimer].forEach(t => t && clearInterval(t));
 
-        hide('exercise-screen'); hide('rest-screen');
+        hide('exercise-screen'); hide('rest-screen'); hide('advance-screen');
         document.getElementById('session-layout').querySelector('.session-sidebar').style.display = 'none';
         document.getElementById('session-progress-wrap').style.display = 'none';
         document.getElementById('session-progress-info').style.display = 'none';
@@ -385,7 +637,30 @@
         document.getElementById('pause-btn').style.display = 'none';
         document.getElementById('resume-btn').style.display = 'none';
         document.getElementById('stop-btn').style.display = 'none';
-        document.getElementById('session-timer').textContent = fmtTime(Math.floor((sessionData.endTime - sessionData.startTime) / 1000));
+        document.getElementById('session-timer').textContent = fmtTime(Math.floor((sessionData.endTime - sessionData.startTime - pausedDuration) / 1000));
+
+        if (CFG.askRpe) buildRpeScale();
+
+        if (CFG.autosave) saveSessionData();
+    }
+
+    function buildRpeScale() {
+        const block = document.getElementById('rpe-block');
+        const scale = document.getElementById('rpe-scale');
+        block.hidden = false;
+        scale.innerHTML = '';
+        for (let i = 1; i <= 10; i++) {
+            const b = document.createElement('button');
+            b.className = 'btn btn-sm btn-outline';
+            b.textContent = i;
+            b.style.minWidth = '36px';
+            b.addEventListener('click', () => {
+                chosenRpe = i;
+                Array.from(scale.children).forEach(x => x.classList.remove('btn-primary'));
+                b.classList.add('btn-primary');
+            });
+            scale.appendChild(b);
+        }
     }
 
     // ─── Global timer ─────────────────────────────────────────
@@ -415,9 +690,12 @@
     }
 
     // ─── Stop Modal ───────────────────────────────────────────
-    function showStopModal() { document.getElementById('stop-modal').classList.remove('hidden'); }
+    function showStopModal() {
+        if (!CFG.confirmStop) { stopSession(); return; }
+        document.getElementById('stop-modal').classList.remove('hidden');
+    }
     function hideStopModal() { document.getElementById('stop-modal').classList.add('hidden'); }
-    function stopSession() { hideStopModal(); completeSession(); }
+    function stopSession() { hideStopModal(); collectSetLogs(); completeSession(); }
 
     // ─── Save ─────────────────────────────────────────────────
     function saveSessionData() {
@@ -435,7 +713,8 @@
             completedExercises: sessionData.completedExercises || 0,
             domainProgress: sessionData.domainProgress || {},
             sessionType: sessionData.sessionType || 'custom',
-            difficulty: sessionData.difficulty || 'beginner'
+            difficulty: sessionData.difficulty || 'beginner',
+            rpe: chosenRpe
         };
 
         const doSave = (window.TrainingApp && window.TrainingApp.saveSession)
@@ -450,6 +729,16 @@
             if (data.status === 'success') {
                 if (window.showToast) showToast('Session saved! Progress updated.', 'success');
                 btn.textContent = '✓ Saved';
+                // Set logs ride along after the session itself is safe.
+                if (setLogs.length) {
+                    apiRequest('/api/logs', {
+                        method: 'POST',
+                        body: JSON.stringify({ logs: setLogs, workout_id: currentWorkout.workout_id || '' })
+                    }).then(logResult => {
+                        if (logResult.notice && window.showToast) showToast(logResult.notice, 'info');
+                        setLogs = [];
+                    }).catch(err => console.warn('Set logs not saved:', err));
+                }
             } else {
                 if (window.showToast) showToast('Error: ' + (data.message || 'Could not save'), 'error');
                 btn.textContent = 'Retry'; btn.disabled = false;
@@ -461,10 +750,7 @@
     }
 
     // ─── Helpers ──────────────────────────────────────────────
-    function fmtTime(s) {
-        s = Math.max(0, Math.round(s));
-        return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
-    }
+    function fmtTime(s) { return formatDuration(s); }
     function updateRing(id, left, total) {
         const el = document.getElementById(id);
         if (!el) return;

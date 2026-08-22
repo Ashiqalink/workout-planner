@@ -1,55 +1,101 @@
 <!DOCTYPE html>
-<html lang="en">
+{#
+  Appearance settings are written onto <html> by the server, not by a script.
+  A client-side theme switcher would paint the old theme first and correct it
+  a frame later; rendering the attributes here means the very first paint is
+  already correct. static/css/style.css keys every appearance rule off them.
+#}
+<html lang="en"
+      {% if settings['appearance.theme'] != 'system' %}data-theme="{{ settings['appearance.theme'] }}"{% endif %}
+      data-accent="{{ settings['appearance.accent'] }}"
+      data-density="{{ settings['appearance.density'] }}"
+      data-font="{{ settings['appearance.font_family'] }}"
+      data-corners="{{ settings['appearance.corner_style'] }}"
+      data-bg="{{ settings['appearance.background'] }}"
+      data-nav="{{ settings['ui.nav_style'] }}"
+      data-motion="{{ 'off' if settings['appearance.reduce_motion'] else 'full' }}"
+      data-tips="{{ 'on' if settings['ui.show_tips'] else 'off' }}"
+      data-bigtimer="{{ 'on' if settings['timers.big_timer'] else 'off' }}"
+      data-mode="{{ settings['ui.mode'] }}"
+      style="--base-font-size: {{ settings['appearance.font_size'] }}px;">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description"
-        content="Student Training System – Track workouts, build strength, and monitor your progress.">
+        content="FitTrack – plan workouts, run guided sessions, and track progress across five training domains.">
     <meta name="theme-color" content="#00BFA5">
-    <title>{% block title %}Student Training System{% endblock %}</title>
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+    <title>{% block title %}FitTrack{% endblock %}</title>
+
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap"
         rel="stylesheet">
+
     <!-- Stylesheet -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <!-- Chart.js -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-    <!-- Lucide Icons -->
-    <script src="https://unpkg.com/lucide@latest"></script>
+
+    {# Pinned rather than @latest: an unpinned unpkg URL costs a redirect on
+       every cold load and cannot be cached immutably. The fallback below
+       covers the version being pulled. #}
+    <script defer src="https://unpkg.com/lucide@1.33.0/dist/umd/lucide.min.js"></script>
+
+    {% if settings['appearance.custom_css'] %}
+    {# Angle brackets are stripped when this setting is saved, so it cannot
+       close the style element. See settings_registry.coerce. #}
+    <style id="user-custom-css">{{ settings['appearance.custom_css'] }}</style>
+    {% endif %}
+
+    {% block head %}{% endblock %}
 </head>
 
 <body>
+    <a href="#main" class="skip-link">Skip to content</a>
+
     <!-- Navigation -->
     <nav class="navbar">
         <div class="nav-container">
             <div class="nav-brand">
-                <a href="{{ url_for('index') }}" style="display:flex;align-items:center;gap:6px;"><i class="icon-xl" data-lucide="zap" ></i> FitTrack</a>
+                <a href="{{ url_for('index') }}" style="display:flex;align-items:center;gap:6px;">
+                    <i class="icon-xl" data-lucide="zap"></i> <span class="nav-label">FitTrack</span>
+                </a>
             </div>
             <ul class="nav-menu">
-                <li><a href="{{ url_for('index') }}" {% if request.endpoint=='index' %}class="active" {% endif
-                        %}>Dashboard</a></li>
-                <li><a href="{{ url_for('library') }}" {% if request.endpoint=='library' %}class="active" {% endif
-                        %}>Library</a></li>
-                <li><a href="{{ url_for('planner') }}" {% if request.endpoint=='planner' %}class="active" {% endif
-                        %}>Planner</a></li>
-                <li><a href="{{ url_for('progress') }}" {% if request.endpoint=='progress' %}class="active" {% endif
-                        %}>Progress</a></li>
-                <li><a href="{{ url_for('training_session') }}" {% if request.endpoint=='training_session'
-                        %}class="active" {% endif %}>Session</a></li>
-                {% if session.get('username') %}
-                <li class="nav-auth">
-                    <a href="{{ url_for('logout') }}">Logout</a>
-                </li>
-                {% else %}
-                <li class="nav-auth">
-                    <a href="{{ url_for('login') }}">Login</a>
-                </li>
-                {% endif %}
+                <li><a href="{{ url_for('index') }}" {% if request.endpoint=='index' %}class="active" {% endif %}>
+                    <span class="nav-label">Dashboard</span><i class="icon-lg nav-only-icon" data-lucide="gauge"></i></a></li>
+                <li><a href="{{ url_for('library') }}" {% if request.endpoint=='library' %}class="active" {% endif %}>
+                    <span class="nav-label">Library</span><i class="icon-lg nav-only-icon" data-lucide="library"></i></a></li>
+                <li><a href="{{ url_for('planner') }}" {% if request.endpoint=='planner' %}class="active" {% endif %}>
+                    <span class="nav-label">Planner</span><i class="icon-lg nav-only-icon" data-lucide="calendar"></i></a></li>
+                <li><a href="{{ url_for('progress') }}" {% if request.endpoint=='progress' %}class="active" {% endif %}>
+                    <span class="nav-label">Progress</span><i class="icon-lg nav-only-icon" data-lucide="trending-up"></i></a></li>
+                <li><a href="{{ url_for('training_session') }}" {% if request.endpoint=='training_session' %}class="active" {% endif %}>
+                    <span class="nav-label">Session</span><i class="icon-lg nav-only-icon" data-lucide="activity"></i></a></li>
             </ul>
+
+            <div class="nav-right">
+                {% if settings['ui.command_palette'] %}
+                <button class="nav-icon-btn" id="palette-open" type="button"
+                        title="Search and jump — Ctrl+K" aria-label="Open quick command bar">
+                    <i class="icon-lg" data-lucide="search"></i>
+                </button>
+                {% endif %}
+                <a class="nav-icon-btn {% if request.endpoint=='settings_page' %}active{% endif %}"
+                   href="{{ url_for('settings_page') }}" title="Settings" aria-label="Settings">
+                    <i class="icon-lg" data-lucide="settings"></i>
+                </a>
+                {% if session.get('username') %}
+                <a class="nav-icon-btn" href="{{ url_for('logout') }}" title="Log out {{ session.get('username') }}"
+                   aria-label="Log out"><i class="icon-lg" data-lucide="log-out"></i></a>
+                {% else %}
+                <a class="nav-icon-btn" href="{{ url_for('login') }}" title="Log in" aria-label="Log in">
+                    <i class="icon-lg" data-lucide="log-in"></i></a>
+                {% endif %}
+            </div>
         </div>
     </nav>
 
@@ -57,12 +103,10 @@
     <div class="toast-container" id="toast-container"></div>
 
     <!-- Main Content -->
-    <main class="main-content">
+    <main class="main-content" id="main">
         {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
-        <script>
-            window.__flashes = {{ messages | tojson }};
-        </script>
+        <script>window.__flashes = {{ messages | tojson }};</script>
         {% endif %}
         {% endwith %}
 
@@ -71,55 +115,52 @@
 
     <!-- Footer -->
     <footer class="footer">
-        <p>⚡ FitTrack &mdash; Student Training System &copy; 2025</p>
+        <p>⚡ FitTrack &mdash; Student Training System &copy; {{ current_year }}</p>
     </footer>
 
-    <!-- App JS -->
-    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    {% if settings['ui.command_palette'] %}
+    <div class="palette-overlay" id="palette" hidden role="dialog" aria-modal="true" aria-label="Quick commands">
+        <div class="palette">
+            <div class="palette-input-row">
+                <i class="icon-lg icon-muted" data-lucide="search"></i>
+                <input type="text" id="palette-input" autocomplete="off" spellcheck="false"
+                       placeholder="Jump to a page, change a setting, or describe what you want…"
+                       aria-label="Command input" aria-controls="palette-results">
+            </div>
+            <div class="palette-results" id="palette-results" role="listbox"></div>
+            <div class="palette-foot">
+                <span><span class="kbd">↑</span> <span class="kbd">↓</span> navigate</span>
+                <span><span class="kbd">Enter</span> select</span>
+                <span><span class="kbd">Esc</span> close</span>
+                <span style="margin-left:auto;">Type a request to change settings by name</span>
+            </div>
+        </div>
+    </div>
+    {% endif %}
 
-    <!-- Toast renderer -->
-    <script>
-        (function () {
-            const icons = { 
-                success: '<i class="icon-success" data-lucide="check-circle-2" ></i>', 
-                error: '<i class="icon-danger" data-lucide="x-circle" ></i>', 
-                warning: '<i class="icon-warning" data-lucide="alert-triangle" ></i>', 
-                info: '<i class="icon-primary" data-lucide="info" ></i>', 
-                message: '<i class="icon-text" data-lucide="message-square" ></i>' 
-            };
-            function showToast(msg, cat) {
-                cat = cat || 'message';
-                const container = document.getElementById('toast-container');
-                const toast = document.createElement('div');
-                toast.className = 'toast toast-' + cat;
-                toast.innerHTML = `
-                <span class="toast-icon">${icons[cat] || icons.message}</span>
-                <span class="toast-msg">${typeof escapeHtml === 'function' ? escapeHtml(msg) : msg}</span>
-                <button class="toast-close" aria-label="Close"><i class="icon-md" data-lucide="x" ></i></button>
-                `;
-                container.appendChild(toast);
-                lucide.createIcons({ root: toast });
-                toast.querySelector('.toast-close').addEventListener('click', () => dismissToast(toast));
-                setTimeout(() => dismissToast(toast), 5000);
-            }
-            function dismissToast(toast) {
-                toast.classList.add('removing');
-                toast.addEventListener('animationend', () => toast.remove(), { once: true });
-            }
-            document.addEventListener('DOMContentLoaded', function () {
-                if (window.__flashes) {
-                    window.__flashes.forEach(([cat, msg]) => showToast(msg, cat));
-                }
-            });
-            window.showToast = showToast;
-        })();
-    </script>
+    <!-- Settings the client needs: theme application, sound cues, timers, units. -->
+    <script>window.FITTRACK = {{ settings | tojson }};</script>
+
+    <!-- App JS. Deliberately NOT deferred: the page templates' inline scripts
+         below call FT.get / formatDate at parse time, so this must have
+         executed first. It is small and served from this same origin. -->
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    {% if settings['ui.command_palette'] %}
+    <script defer src="{{ url_for('static', filename='js/palette.js') }}"></script>
+    {% endif %}
 
     {% block scripts %}{% endblock %}
 
-    <!-- Initialize Lucide Icons globally -->
     <script>
-        lucide.createIcons();
+        // Deferred scripts have finished by DOMContentLoaded, so both lucide
+        // and the app helpers are defined here. Drawing icons any earlier
+        // would race the pinned CDN script.
+        document.addEventListener('DOMContentLoaded', function () {
+            if (window.lucide) lucide.createIcons();
+            if (window.__flashes && window.showToast) {
+                window.__flashes.forEach(function (f) { showToast(f[1], f[0]); });
+            }
+        });
     </script>
 </body>
 

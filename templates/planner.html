@@ -25,26 +25,17 @@
                     <label style="margin-bottom:12px;display:block;">Training Domains <span
                             style="font-weight:400;color:var(--text-muted)">(select all that apply)</span></label>
                     <div class="domain-cards">
-                        <label class="domain-card" id="dc-strength">
-                            <input type="checkbox" name="domains" value="Strength">
-                            <div class="domain-card-label">Strength</div>
+                        {# checked state comes from workout.default_domains, so the
+                           planner opens preloaded with the user's usual focus #}
+                        {% for value, label in [('Strength','Strength'), ('Speed & Mobility','Speed'),
+                                                ('Endurance','Endurance'), ('Agility','Agility'),
+                                                ('Cognitive','Cognitive')] %}
+                        <label class="domain-card {{ 'selected' if value in settings['workout.default_domains'] }}">
+                            <input type="checkbox" name="domains" value="{{ value }}"
+                                   {{ 'checked' if value in settings['workout.default_domains'] }}>
+                            <div class="domain-card-label">{{ label }}</div>
                         </label>
-                        <label class="domain-card" id="dc-speed">
-                            <input type="checkbox" name="domains" value="Speed & Mobility">
-                            <div class="domain-card-label">Speed</div>
-                        </label>
-                        <label class="domain-card" id="dc-endurance">
-                            <input type="checkbox" name="domains" value="Endurance">
-                            <div class="domain-card-label">Endurance</div>
-                        </label>
-                        <label class="domain-card" id="dc-agility">
-                            <input type="checkbox" name="domains" value="Agility">
-                            <div class="domain-card-label">Agility</div>
-                        </label>
-                        <label class="domain-card" id="dc-cognitive">
-                            <input type="checkbox" name="domains" value="Cognitive">
-                            <div class="domain-card-label">Cognitive</div>
-                        </label>
+                        {% endfor %}
                     </div>
                 </div>
 
@@ -52,13 +43,14 @@
                 <div class="form-group">
                     <label>Duration</label>
                     <div class="duration-display">
-                        <span class="duration-value" id="duration-val">20</span>
+                        <span class="duration-value" id="duration-val">{{ settings['workout.default_duration'] }}</span>
                         <span class="duration-unit">min</span>
                     </div>
                     <div class="range-slider">
-                        <input type="range" id="duration" name="duration" min="5" max="60" step="5" value="20"
+                        <input type="range" id="duration" name="duration" min="5" max="120" step="5"
+                            value="{{ settings['workout.default_duration'] }}"
                             oninput="document.getElementById('duration-val').textContent=this.value">
-                        <div class="range-label"><span>5 min</span><span>60 min</span></div>
+                        <div class="range-label"><span>5 min</span><span>120 min</span></div>
                     </div>
                 </div>
 
@@ -66,10 +58,11 @@
                 <div class="form-group">
                     <label for="difficulty">Difficulty Level</label>
                     <select id="difficulty" name="difficulty" class="form-control" required>
-                        <option value="">Select level</option>
-                        <option value="beginner">🟢 Beginner</option>
-                        <option value="intermediate">🟡 Intermediate</option>
-                        <option value="advanced">🔴 Advanced</option>
+                        {% for value, label in [('beginner','🟢 Beginner'), ('intermediate','🟡 Intermediate'),
+                                                ('advanced','🔴 Advanced')] %}
+                        <option value="{{ value }}"
+                                {{ 'selected' if settings['workout.default_difficulty'] == value }}>{{ label }}</option>
+                        {% endfor %}
                     </select>
                 </div>
 
@@ -80,6 +73,29 @@
                             style="font-weight:400;color:var(--text-muted)">(optional)</span></label>
                     <textarea id="goal" name="goal" class="form-control" rows="3"
                         placeholder="e.g. Focus on dynamic stability, target weak shoulder blades, low impact for back pain"></textarea>
+                    {% if not (settings['ai.enabled'] and settings['ai.workout_generation']) %}
+                    <p style="font-size:0.78rem;color:var(--text-muted);margin-top:6px;">
+                        The local AI is off, so free-text goals are ignored — the rule-based engine
+                        uses your domains, duration and settings. Turn it on under
+                        <a href="{{ url_for('settings_page') }}">Settings → Local AI</a>.
+                    </p>
+                    {% endif %}
+                </div>
+
+                <!-- The settings that will quietly shape this workout -->
+                <div id="active-modifiers" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:18px;">
+                    {% if settings['workout.include_warmup'] %}
+                    <span class="session-meta-chip">🔥 {{ settings['workout.warmup_minutes'] }} min warm-up</span>
+                    {% endif %}
+                    {% if settings['workout.include_cooldown'] %}
+                    <span class="session-meta-chip">🧊 {{ settings['workout.cooldown_minutes'] }} min cool-down</span>
+                    {% endif %}
+                    {% if settings['workout.exclude_keywords'] %}
+                    <span class="session-meta-chip">🚫 excluding: {{ settings['workout.exclude_keywords'] }}</span>
+                    {% endif %}
+                    {% if settings['workout.variety'] == 'strict' %}
+                    <span class="session-meta-chip">🔀 no recent repeats</span>
+                    {% endif %}
                 </div>
 
                 <button type="submit" class="btn btn-primary btn-lg btn-full" id="generate-btn"
@@ -98,18 +114,20 @@
                     Regenerate</button>
             </div>
 
-            <div style="display:flex;gap:10px;margin-bottom:20px;">
+            <div style="display:flex;gap:10px;margin-bottom:20px;align-items:center;flex-wrap:wrap;">
                 <button class="btn btn-sm btn-primary" id="start-btn" onclick="startWorkout()"
                     style="display:flex;align-items:center;gap:6px;"><i class="icon-md icon-fill"
                         data-lucide="play"></i> Start Workout</button>
+                <span id="engine-badge"></span>
             </div>
 
-            <!-- AI Explanation Block -->
+            <!-- Workout summary (engine-computed, never model prose) -->
             <div class="ai-explanation-box" id="ai-explanation-box">
                 <h4 class="ai-explanation-header">
-                    <i class="icon-md" data-lucide="sparkles"></i> AI Workout Insights
+                    <i class="icon-md" data-lucide="sparkles"></i> Workout Summary
                 </h4>
                 <p id="ai-explanation-text" class="ai-explanation-text"></p>
+                <p id="applied-settings-text" style="font-size:0.78rem;color:var(--text-muted);margin-top:8px;"></p>
             </div>
 
             <div class="workout-preview-stats">
@@ -158,9 +176,6 @@
         const cb = card.querySelector('input[type="checkbox"]');
         cb.addEventListener('change', function () {
             card.classList.toggle('selected', this.checked);
-        });
-        card.addEventListener('click', function (e) {
-            if (e.target === cb) return;
         });
     });
 
@@ -221,6 +236,18 @@
         const dKey = (workout.difficulty || '').toLowerCase();
         document.getElementById('workout-difficulty').textContent = (diffMap[dKey] || '') + ' ' + (workout.difficulty || '—');
 
+        // Which engine answered — the AI or the built-in rules. Honest labelling
+        // is the ai.fallback_notice setting's whole purpose.
+        const badge = document.getElementById('engine-badge');
+        if (workout.engine === 'ai') {
+            badge.innerHTML = '<span class="engine-badge engine-ai">✨ built by your local model</span>';
+        } else if (FT.get('ai.fallback_notice', true) &&
+                   FT.get('ai.enabled', true) && FT.get('ai.workout_generation', true)) {
+            badge.innerHTML = '<span class="engine-badge engine-rules">built by the rule engine (model unavailable)</span>';
+        } else {
+            badge.innerHTML = '<span class="engine-badge engine-rules">built by the rule engine</span>';
+        }
+
         const list = document.getElementById('exercises-list');
         list.innerHTML = '';
         workout.exercises.forEach((ex, i) => {
@@ -237,7 +264,6 @@
             list.appendChild(item);
         });
 
-        // AI Explanation box update
         const aiBox = document.getElementById('ai-explanation-box');
         const aiText = document.getElementById('ai-explanation-text');
         if (workout.explanation) {
@@ -246,9 +272,12 @@
         } else {
             aiBox.style.display = 'none';
         }
+        const appliedEl = document.getElementById('applied-settings-text');
+        appliedEl.textContent = (workout.applied_settings && workout.applied_settings.length)
+            ? 'Your settings shaped this: ' + workout.applied_settings.join(' · ')
+            : '';
 
-        // Reinitialize Lucide icons in explanation box if any
-        lucide.createIcons({ root: aiBox });
+        if (window.lucide) lucide.createIcons({ root: aiBox });
 
         sessionStorage.setItem('currentWorkout', JSON.stringify(workout));
     }

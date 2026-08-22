@@ -53,6 +53,11 @@
                     <input type="number" id="ex-duration" class="form-control" step="0.1" min="0.1" value="1.0" required>
                 </div>
             </div>
+            <div class="form-group">
+                <label for="ex-equipment">Equipment needed (optional)</label>
+                <input type="text" id="ex-equipment" class="form-control"
+                       placeholder='e.g. Dumbbells — or "Wall or chair". Leave blank for none.'>
+            </div>
             <div class="exercise-form-grid-2">
                 <div class="form-group">
                     <label for="ex-muscles">Target Muscles (optional)</label>
@@ -98,6 +103,9 @@
             <button class="filter-pill" data-value="Cognition" onclick="setFilter('category','Cognition',this)">
                 Cognition</button>
         </div>
+        <div class="filter-pills" id="special-pills">
+            <button class="filter-pill" id="fav-pill" onclick="toggleFavFilter(this)">&#9733; Favourites</button>
+        </div>
         <div class="filter-pills" id="difficulty-pills">
             <button class="filter-pill active" data-value="" onclick="setFilter('difficulty','',this)">All
                 Levels</button>
@@ -130,8 +138,11 @@
     let activeCategory = '';
     let activeDifficulty = '';
     let searchTerm = '';
+    let favsOnly = false;
+    let favorites = new Set();   // "category|name" tokens
 
     document.addEventListener('DOMContentLoaded', function () {
+        loadFavorites();
         loadLibraryExercises();
 
         const inp = document.getElementById('search-input');
@@ -162,11 +173,12 @@
         const target_muscles = document.getElementById('ex-muscles').value;
         const description = document.getElementById('ex-desc').value;
         const instructions = document.getElementById('ex-instructions').value;
+        const equipment = document.getElementById('ex-equipment').value;
 
         fetch('/api/exercises/add', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, category, difficulty, duration, target_muscles, description, instructions })
+            body: JSON.stringify({ name, category, difficulty, duration, target_muscles, description, instructions, equipment })
         })
         .then(r => r.json())
         .then(data => {
@@ -200,6 +212,35 @@
                 lucide.createIcons({ root: container });
             });
     }
+    function loadFavorites() {
+        fetch('/api/exercises/favorites')
+            .then(r => r.json())
+            .then(d => {
+                if (d.success) { favorites = new Set(d.favorites || []); applyAll(); }
+            })
+            .catch(() => {});
+    }
+
+    function toggleFavFilter(btn) {
+        favsOnly = !favsOnly;
+        btn.classList.toggle('active', favsOnly);
+        applyAll();
+    }
+
+    function toggleFavorite(ex, starBtn) {
+        const token = ex.category + '|' + ex.name;
+        apiRequest('/api/exercises/favorite', {
+            method: 'POST',
+            body: JSON.stringify({ name: ex.name, category: ex.category })
+        }).then(d => {
+            if (!d.success) return;
+            if (d.favorited) favorites.add(token); else favorites.delete(token);
+            starBtn.classList.toggle('starred', d.favorited);
+            starBtn.textContent = d.favorited ? '★' : '☆';
+            if (favsOnly) applyAll();
+        }).catch(e => showToast(e.message, 'error'));
+    }
+
     function setFilter(type, value, btn) {
         if (type === 'category') {
             activeCategory = value;
@@ -224,11 +265,12 @@
     }
     function applyAll() {
         let result = allExercises;
+        if (favsOnly) result = result.filter(e => favorites.has(e.category + '|' + e.name));
         if (activeCategory) result = result.filter(e => e.category === activeCategory);
         if (activeDifficulty) result = result.filter(e => e.difficulty === activeDifficulty);
         if (searchTerm) {
             result = result.filter(e => {
-                const haystack = [e.name, e.description, e.instructions, e.target_muscles || ''].join(' ').toLowerCase();
+                const haystack = [e.name, e.description, e.instructions, e.target_muscles || '', e.equipment || ''].join(' ').toLowerCase();
                 return haystack.includes(searchTerm);
             });
         }
@@ -275,8 +317,10 @@
             difficulty: escapeHtml(ex.difficulty),
             target_muscles: escapeHtml(ex.target_muscles),
             description: escapeHtml(ex.description),
-            instructions: escapeHtml(ex.instructions)
+            instructions: escapeHtml(ex.instructions),
+            equipment: escapeHtml(ex.equipment)
         };
+        const needsEquipment = ex.equipment && ex.equipment.toLowerCase() !== 'none';
 
         card.innerHTML = `
         <div class="exercise-card-body">
@@ -287,6 +331,7 @@
             <div class="exercise-meta">
                 <p><strong>Duration:</strong> ${durationSec}s</p>
                 <p><strong>Difficulty:</strong> <span class="badge ${getDifficultyBadge(ex.difficulty)}">${safe.difficulty}</span></p>
+                ${needsEquipment ? `<p><strong>Needs:</strong> ${safe.equipment}</p>` : ''}
                 ${safe.target_muscles ? `<p><strong>Muscles:</strong> ${safe.target_muscles}</p>` : ''}
                 ${safe.description ? `<p style="margin-top:6px;font-style:italic;">${safe.description}</p>` : ''}
             </div>
@@ -296,10 +341,25 @@
                 <p>${safe.instructions}</p>
             </div>` : ''}
         </div>
-        <div class="exercise-actions">
-            <button class="btn btn-sm btn-outline" onclick="addToWorkout(this.dataset.name)" data-name="${safe.name.replace(/"/g, '&quot;')}">+ Add to Workout</button>
-        </div>
+        <div class="exercise-actions"></div>
     `;
+        const actions = card.querySelector('.exercise-actions');
+
+        const starBtn = document.createElement('button');
+        starBtn.className = 'btn btn-sm btn-ghost fav-star';
+        const isFav = favorites.has(ex.category + '|' + ex.name);
+        starBtn.textContent = isFav ? '★' : '☆';
+        starBtn.classList.toggle('starred', isFav);
+        starBtn.title = 'Favourite';
+        starBtn.setAttribute('aria-label', 'Toggle favourite for ' + ex.name);
+        starBtn.addEventListener('click', () => toggleFavorite(ex, starBtn));
+        actions.appendChild(starBtn);
+
+        const addBtn = document.createElement('button');
+        addBtn.className = 'btn btn-sm btn-outline';
+        addBtn.textContent = '+ Add to Workout';
+        addBtn.addEventListener('click', () => addToWorkout(ex));
+        actions.appendChild(addBtn);
         return card;
     }
 
@@ -309,8 +369,32 @@
         el.textContent = count === total ? `Showing all ${total} exercises` : `Showing ${count} of ${total} exercises`;
     }
 
-    function addToWorkout(name) {
-        if (window.showToast) showToast(`"${name}" added to your workout list.`, 'success');
+    // Append an exercise to the workout the Session page reads from sessionStorage.
+    function addToWorkout(ex) {
+        let workout = null;
+        try { workout = JSON.parse(sessionStorage.getItem('currentWorkout')); } catch (e) { workout = null; }
+        if (!workout || !Array.isArray(workout.exercises)) {
+            workout = {
+                success: true,
+                sessionType: 'Library Workout',
+                explanation: 'Workout built from the exercise library.',
+                exercises: [],
+                total_duration: 0,
+                difficulty: ex.difficulty || 'beginner'
+            };
+        }
+        if (workout.exercises.some(e => e.name === ex.name && e.category === ex.category)) {
+            if (window.showToast) showToast(`"${ex.name}" is already in your workout.`, 'warning');
+            return;
+        }
+        workout.exercises.push({
+            name: ex.name, category: ex.category, duration: ex.duration,
+            difficulty: ex.difficulty, description: ex.description,
+            target_muscles: ex.target_muscles, instructions: ex.instructions
+        });
+        workout.total_duration = Math.round(workout.exercises.reduce((s, e) => s + (parseFloat(e.duration) || 0), 0) * 10) / 10;
+        sessionStorage.setItem('currentWorkout', JSON.stringify(workout));
+        if (window.showToast) showToast(`"${ex.name}" added — ${workout.exercises.length} exercise(s), ~${workout.total_duration} min. Open Session to start.`, 'success');
     }
 </script>
 {% endblock %}

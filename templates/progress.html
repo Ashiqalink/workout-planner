@@ -2,7 +2,13 @@
 
 {% block title %}Progress – FitTrack{% endblock %}
 
+{% block head %}
+{# Chart.js is only needed here, so it loads here rather than on every page. #}
+<script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+{% endblock %}
+
 {% block content %}
+{% set charts = settings['progress.charts'] %}
 <div class="progress-page">
     <div class="page-header">
         <div class="breadcrumb"><a href="{{ url_for('index') }}">Home</a> › Progress</div>
@@ -38,21 +44,62 @@
         </div>
     </div>
 
-    <!-- Charts -->
+    <!-- Charts (which ones render is the progress.charts setting) -->
+    {% if 'domain' in charts or 'weekly' in charts %}
     <div class="charts-grid">
+        {% if 'domain' in charts %}
         <div class="chart-card">
             <h2>Domain Distribution</h2>
             <div class="chart-container-inner">
                 <canvas id="domainChart"></canvas>
             </div>
         </div>
+        {% endif %}
+        {% if 'weekly' in charts %}
         <div class="chart-card">
             <h2>Weekly Activity</h2>
             <div class="chart-container-inner">
                 <canvas id="weeklyChart"></canvas>
             </div>
         </div>
+        {% endif %}
     </div>
+    {% endif %}
+
+    {% if 'trend' in charts %}
+    <div class="chart-card" style="margin-bottom:24px;">
+        <h2>Session Length Trend</h2>
+        <div class="chart-container-inner">
+            <canvas id="trendChart"></canvas>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if 'heatmap' in charts %}
+    <div class="card" style="margin-bottom:24px;">
+        <div class="section-heading"><h2>🗓️ Activity Heatmap</h2></div>
+        <div class="heatmap" id="progress-heatmap"></div>
+        <div class="heatmap-legend">
+            <span>less</span>
+            <span class="heatmap-cell" data-level="0"></span>
+            <span class="heatmap-cell" data-level="1"></span>
+            <span class="heatmap-cell" data-level="2"></span>
+            <span class="heatmap-cell" data-level="3"></span>
+            <span class="heatmap-cell" data-level="4"></span>
+            <span>more</span>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Personal records — only meaningful once set logging is on -->
+    {% if settings['session.tracking_mode'] != 'timer' %}
+    <div class="card" style="margin-bottom:24px;" id="records-card" hidden>
+        <div class="section-heading">
+            <h2>🏅 Personal Bests</h2>
+        </div>
+        <div id="records-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;"></div>
+    </div>
+    {% endif %}
 
     <!-- Domain Progress Cards -->
     <div class="section-heading" style="margin-bottom:16px;">
@@ -97,10 +144,10 @@
     <div class="sessions-list">
         {% for s in recent_sessions %}
         <div class="session-item">
-            <div class="session-date">{{ s.session_date or '—' }}</div>
+            <div class="session-date" data-date="{{ s.session_date }}">{{ s.session_date or '—' }}</div>
             <div class="session-details">
                 <h4>{{ s.session_type or 'Custom Workout' }}</h4>
-                <p>{{ s.total_duration or 0 }} minutes</p>
+                <p>{{ s.total_duration or 0 }} minutes{% if s.rpe %} · effort {{ s.rpe }}/10{% endif %}</p>
             </div>
             <div class="session-status">Completed</div>
         </div>
@@ -119,82 +166,208 @@
 {% block scripts %}
 <script>
     document.addEventListener('DOMContentLoaded', function () {
-        Chart.defaults.font.family = "'Inter', system-ui, sans-serif";
-        Chart.defaults.color = '#5A7775';
-
-        const teal = '#00BFA5';
-        const colors = ['#EF5350', '#00BFA5', '#29B6F6', '#FFA726', '#9C27B0'];
-
-        // Domain doughnut
-        const dCtx = document.getElementById('domainChart').getContext('2d');
-        new Chart(dCtx, {
-            type: 'doughnut',
-            data: {
-                labels: ['Strength', 'Speed & Mobility', 'Endurance', 'Agility', 'Cognitive'],
-                datasets: [{
-                    data: [
-                        {{ progress_data.strength.minutes or 0 }},
-                {{ progress_data.speed_mobility.minutes or 0 }},
-                    {{ progress_data.endurance.minutes or 0 }},
-        {{ progress_data.agility.minutes or 0 }},
-        {{ progress_data.cognitive.minutes or 0 }}
-                ],
-        backgroundColor: colors,
-        borderWidth: 2,
-        borderColor: '#fff'
-            }]
-        },
-        options: {
-        responsive: true, maintainAspectRatio: false,
-        cutout: '65%',
-        plugins: {
-            legend: { position: 'bottom', labels: { padding: 12, boxWidth: 12, font: { size: 12 } } }
-        }
-    }
-    });
-
-    // Weekly line chart
-    const wCtx = document.getElementById('weeklyChart').getContext('2d');
-    new Chart(wCtx, {
-        type: 'line',
-        data: {
-            labels: ['Week 1', 'Week 2', 'Week 3', 'Week 4'],
-            datasets: [{
-                label: 'Minutes trained',
-                data: [{{ progress_data.weekly_progress | join(', ') if progress_data.weekly_progress else '0, 0, 0, 0' }}],
-            borderColor: teal,
-            backgroundColor: 'rgba(0,191,165,0.1)',
-            borderWidth: 2.5,
-            pointBackgroundColor: teal,
-            pointRadius: 4,
-            pointHoverRadius: 6,
-            fill: true,
-            tension: 0.4
-        }]
-    },
-        options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        scales: {
-            x: { grid: { color: 'rgba(0,0,0,0.04)' } },
-            y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.04)' } }
-        }
-    }
-    });
-
-    // Animate progress bars on scroll into view
-    const observer = new IntersectionObserver(entries => {
-        entries.forEach(entry => {
-            if (entry.isIntersecting) {
-                const fill = entry.target;
-                const w = fill.style.width;
-                fill.style.width = '0%';
-                requestAnimationFrame(() => { fill.style.width = w; });
-                observer.unobserve(fill);
-            }
+        // Dates follow units.date_format
+        document.querySelectorAll('.session-date[data-date]').forEach(el => {
+            if (el.dataset.date) el.textContent = formatDate(el.dataset.date);
         });
-    }, { threshold: 0.1 });
-    document.querySelectorAll('.progress-fill.animated').forEach(el => observer.observe(el));
-});
+
+        if (window.Chart) initCharts();
+        if (document.getElementById('progress-heatmap')) loadProgressHeatmap();
+        if (document.getElementById('records-card')) loadRecords();
+
+        // Animate progress bars on scroll into view
+        const observer = new IntersectionObserver(entries => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const fill = entry.target;
+                    const w = fill.style.width;
+                    fill.style.width = '0%';
+                    requestAnimationFrame(() => { fill.style.width = w; });
+                    observer.unobserve(fill);
+                }
+            });
+        }, { threshold: 0.1 });
+        document.querySelectorAll('.progress-fill.animated').forEach(el => observer.observe(el));
+    });
+
+    function cssVar(name) {
+        return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    }
+
+    function initCharts() {
+        // Colours come from the live CSS variables, so charts follow the
+        // theme and accent settings instead of hard-coding the light palette.
+        Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+        Chart.defaults.color = cssVar('--text-muted') || '#5A7775';
+        const teal = cssVar('--primary') || '#00BFA5';
+        const surface = cssVar('--surface') || '#fff';
+        const grid = 'rgba(128,128,128,0.12)';
+        const colors = ['#EF5350', teal, '#29B6F6', '#FFA726', '#9C27B0'];
+
+        const domainCanvas = document.getElementById('domainChart');
+        if (domainCanvas) {
+            new Chart(domainCanvas.getContext('2d'), {
+                type: 'doughnut',
+                data: {
+                    labels: ['Strength', 'Speed & Mobility', 'Endurance', 'Agility', 'Cognitive'],
+                    datasets: [{
+                        data: [
+                            {{ progress_data.strength.minutes or 0 }},
+                            {{ progress_data.speed_mobility.minutes or 0 }},
+                            {{ progress_data.endurance.minutes or 0 }},
+                            {{ progress_data.agility.minutes or 0 }},
+                            {{ progress_data.cognitive.minutes or 0 }}
+                        ],
+                        backgroundColor: colors,
+                        borderWidth: 2,
+                        borderColor: surface
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    cutout: '65%',
+                    plugins: {
+                        legend: { position: 'bottom', labels: { padding: 12, boxWidth: 12, font: { size: 12 } } }
+                    }
+                }
+            });
+        }
+
+        const weeklyCanvas = document.getElementById('weeklyChart');
+        if (weeklyCanvas) {
+            // progress.chart_style: bars, lines, or filled area
+            const style = FT.get('progress.chart_style', 'bar');
+            const type = style === 'bar' ? 'bar' : 'line';
+            new Chart(weeklyCanvas.getContext('2d'), {
+                type: type,
+                data: {
+                    labels: ['3 wks ago', '2 wks ago', 'Last week', 'This week'],
+                    datasets: [{
+                        label: 'Minutes trained',
+                        data: [{{ progress_data.weekly_progress | join(', ') if progress_data.weekly_progress else '0, 0, 0, 0' }}],
+                        borderColor: teal,
+                        backgroundColor: style === 'bar' ? teal : 'rgba(0,191,165,0.12)',
+                        borderWidth: 2.5,
+                        borderRadius: style === 'bar' ? 6 : 0,
+                        pointBackgroundColor: teal,
+                        pointRadius: type === 'line' ? 4 : 0,
+                        fill: style === 'area',
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { grid: { color: grid } },
+                        y: { beginAtZero: true, grid: { color: grid } }
+                    }
+                }
+            });
+        }
+
+        const trendCanvas = document.getElementById('trendChart');
+        if (trendCanvas) {
+            // Session length over the visible history, oldest first
+            const sessions = {{ recent_sessions | tojson }};
+            const points = sessions.slice().reverse();
+            new Chart(trendCanvas.getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels: points.map(s => s.session_date || ''),
+                    datasets: [{
+                        label: 'Minutes',
+                        data: points.map(s => s.total_duration || 0),
+                        borderColor: teal,
+                        backgroundColor: 'rgba(0,191,165,0.08)',
+                        borderWidth: 2,
+                        pointRadius: 3,
+                        fill: true,
+                        tension: 0.3
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { grid: { display: false }, ticks: { maxTicksLimit: 8 } },
+                        y: { beginAtZero: true, grid: { color: grid } }
+                    }
+                }
+            });
+        }
+    }
+
+    function loadProgressHeatmap() {
+        fetch('/api/activity-heatmap')
+            .then(r => r.json())
+            .then(data => { if (data.success) renderHeatmapInto('progress-heatmap', data.days || {}); })
+            .catch(() => {});
+    }
+
+    function renderHeatmapInto(id, byDate) {
+        const container = document.getElementById(id);
+        const startOffset = { monday: 1, sunday: 0, saturday: 6 }[FT.get('units.week_start', 'monday')] ?? 1;
+        const today = new Date();
+        const currentDow = (today.getDay() - startOffset + 7) % 7;
+        const gridStart = new Date(today);
+        gridStart.setDate(today.getDate() - currentDow - 7 * 11);
+
+        const rows = Array.from({ length: 7 }, () => {
+            const row = document.createElement('div');
+            row.className = 'heatmap-row';
+            return row;
+        });
+
+        for (let week = 0; week < 12; week++) {
+            for (let dow = 0; dow < 7; dow++) {
+                const day = new Date(gridStart);
+                day.setDate(gridStart.getDate() + week * 7 + dow);
+                const key = day.getFullYear() + '-' +
+                    String(day.getMonth() + 1).padStart(2, '0') + '-' +
+                    String(day.getDate()).padStart(2, '0');
+                const minutes = byDate[key] || 0;
+                const cell = document.createElement('span');
+                cell.className = 'heatmap-cell';
+                cell.setAttribute('data-level',
+                    minutes === 0 ? 0 : minutes < 10 ? 1 : minutes < 20 ? 2 : minutes < 35 ? 3 : 4);
+                cell.title = formatDate(day) + ': ' + minutes + ' min';
+                if (day > today) cell.style.visibility = 'hidden';
+                rows[dow].appendChild(cell);
+            }
+        }
+        container.innerHTML = '';
+        rows.forEach(r => container.appendChild(r));
+    }
+
+    function loadRecords() {
+        fetch('/api/logs/records')
+            .then(r => r.json())
+            .then(data => {
+                if (!data.success || !data.records || !data.records.length) return;
+                const card = document.getElementById('records-card');
+                const list = document.getElementById('records-list');
+                card.hidden = false;
+                list.innerHTML = '';
+                data.records.forEach(rec => {
+                    const item = document.createElement('div');
+                    item.className = 'card-flat';
+                    item.style.padding = '14px';
+                    const name = document.createElement('h4');
+                    name.style.cssText = 'font-size:0.92rem;margin-bottom:6px;';
+                    name.textContent = rec.exercise_name;
+                    const detail = document.createElement('p');
+                    detail.style.cssText = 'font-size:0.8rem;color:var(--text-muted);';
+                    const bits = [];
+                    if (rec.best_weight) bits.push('best ' + rec.best_weight + ' ' + (rec.weight_unit || 'kg'));
+                    if (rec.best_reps) bits.push(rec.best_reps + ' reps');
+                    bits.push(rec.sets_logged + ' sets logged');
+                    detail.textContent = bits.join(' · ');
+                    item.append(name, detail);
+                    list.appendChild(item);
+                });
+            })
+            .catch(() => {});
+    }
 </script>
 {% endblock %}
