@@ -323,6 +323,157 @@ def test_settings_intent_schema_has_no_free_text_field():
     assert item['additionalProperties'] is False
 
 
+# ── Sound & feedback ─────────────────────────────────────────────────
+
+AUDIO_KEYS = ['audio.enabled', 'audio.volume', 'audio.cue_style',
+              'audio.countdown_ticks', 'audio.voice_announce', 'audio.vibrate']
+
+
+def test_audio_group_is_complete():
+    """The column the settings page renders, in the order it renders them."""
+    keys = [s.key for s in reg.SETTINGS if s.group == 'Sound & feedback']
+    assert keys == AUDIO_KEYS
+    for key in AUDIO_KEYS:
+        assert reg.SETTINGS_BY_KEY[key].help, f'{key} has no help text'
+
+
+def test_audio_volume_clamps_to_range():
+    setting = reg.SETTINGS_BY_KEY['audio.volume']
+    assert reg.coerce(setting, 75) == (True, 75, None)
+    assert reg.coerce(setting, '75') == (True, 75, None)
+    assert reg.coerce(setting, 200)[1] == 100      # above maximum -> maximum
+    assert reg.coerce(setting, -10)[1] == 0        # below minimum -> minimum
+    ok, _, error = reg.coerce(setting, 'loud')
+    assert not ok and 'expects a number' in error
+
+
+def test_audio_cue_style_accepts_every_choice():
+    setting = reg.SETTINGS_BY_KEY['audio.cue_style']
+    for value, _label in setting.choices:
+        assert reg.coerce(setting, value) == (True, value, None)
+    assert reg.coerce(setting, 'BELL') == (True, 'bell', None)   # case-insensitive
+    ok, _, error = reg.coerce(setting, 'gong')
+    assert not ok and 'must be one of' in error
+
+
+def test_match_intent_volume_direction_and_number():
+    # Bare direction words step the current value; a number sets it outright.
+    current = reg.defaults()
+    assert _intents('make it louder', current)['audio.volume'] > current['audio.volume']
+    assert _intents('quieter please', current)['audio.volume'] < current['audio.volume']
+    assert _intents('set volume to 80') == {'audio.volume': 80.0}
+    assert _intents('set the volume to 20%') == {'audio.volume': 20.0}
+
+
+def test_match_intent_cue_style_by_name():
+    assert _intents('use a chime instead') == {'audio.cue_style': 'chime'}
+    assert _intents('use a click') == {'audio.cue_style': 'click'}
+
+
+def test_match_intent_choice_noun_does_not_toggle_its_setting():
+    """"I want the bell sound" picks a cue. The word "sound" is that cue's own
+    noun and "want" is a wish, not a switch — neither is a request to unmute,
+    so the sound toggle must not ride along."""
+    for cue in ('bell', 'beep', 'chime', 'click'):
+        assert _intents(f'i want the {cue} sound') == {'audio.cue_style': cue}, cue
+        assert _intents(f'give me the {cue} sound') == {'audio.cue_style': cue}, cue
+    # The toggle is still reachable when the sentence actually names it
+    assert _intents('turn on sound') == {'audio.enabled': True}
+    assert _intents('sound cues') == {'audio.enabled': True}
+    # ...and an explicit off beside a cue choice still applies to both
+    off = _intents('use the bell but no sound for now')
+    assert off == {'audio.cue_style': 'bell', 'audio.enabled': False}
+    # A direction word belongs to the number it steps, not to the toggle
+    assert _intents('i want the bell sound and louder volume') == \
+        {'audio.cue_style': 'bell', 'audio.volume': 70.0}
+
+    # ...but a trailing direction word must not demote an explicit switch word
+    assert _intents('turn on the bell sound and louder volume') == \
+        {'audio.cue_style': 'bell', 'audio.enabled': True, 'audio.volume': 70.0}
+
+
+def test_match_intent_assumed_toggles_stand_alone():
+    # Nothing else explains these words, so the assumption is the request.
+    assert _intents('i want a big timer') == {'timers.big_timer': True}
+    assert _intents('i want the exercise names announced') == \
+        {'audio.voice_announce': True}
+
+
+def test_match_intent_ticks_voice_and_vibration():
+    assert _intents('stop the ticking') == {'audio.countdown_ticks': False}
+    assert _intents('announce the exercise names') == {'audio.voice_announce': True}
+    assert _intents('read out the next exercise') == {'audio.voice_announce': True}
+    assert _intents('turn off haptics') == {'audio.vibrate': False}
+    assert _intents('turn on vibration') == {'audio.vibrate': True}
+    # "vibrating" does not stem onto "vibrate", so it is its own keyword
+    assert _intents('stop vibrating') == {'audio.vibrate': False}
+
+
+def test_match_intent_self_negating_words_silence():
+    """"Silent", "mute" and "quiet" ask for silence on their own — there is no
+    negation word to flip, and reading them as "switch it on" inverts the ask."""
+    for query in ('silent', 'make it silent', 'silent mode please',
+                  'mute everything', 'keep it quiet'):
+        assert _intents(query) == {'audio.enabled': False}, query
+    # The positive direction still needs an actual positive cue
+    assert _intents('turn on sound') == {'audio.enabled': True}
+
+
+def test_audio_settings_roundtrip(flask_app):
+    client = csrf_client(flask_app)
+    data = client.post('/api/settings', headers=H, json={'changes': [
+        {'key': 'audio.volume', 'value': 85},
+        {'key': 'audio.cue_style', 'value': 'chime'},
+        {'key': 'audio.vibrate', 'value': False},
+    ]}).get_json()
+    assert data['success'] and data['rejected'] == []
+    values = client.get('/api/settings').get_json()['values']
+    assert values['audio.volume'] == 85
+    assert values['audio.cue_style'] == 'chime'
+    assert values['audio.vibrate'] is False
+    # The client reads these through FT.get, so they must reach the page
+    assert b'audio.cue_style' in client.get('/session').data
+
+
+def test_audio_invalid_values_rejected_with_reason(flask_app):
+    client = csrf_client(flask_app)
+    data = client.post('/api/settings', headers=H, json={'changes': [
+        {'key': 'audio.cue_style', 'value': 'gong'},
+        {'key': 'audio.volume', 'value': 'loud'},
+    ]}).get_json()
+    assert data['changed'] == []
+    errors = ' '.join(r['error'] for r in data['rejected'])
+    assert 'must be one of' in errors and 'expects a number' in errors
+
+
+def test_quiet_preset_silences_every_channel(flask_app):
+    client = csrf_client(flask_app)
+    assert client.post('/api/settings/preset', headers=H,
+                       json={'preset': 'quiet'}).get_json()['success']
+    values = client.get('/api/settings').get_json()['values']
+    assert values['audio.enabled'] is False
+    assert values['audio.countdown_ticks'] is False
+    assert values['audio.voice_announce'] is False
+    assert values['audio.vibrate'] is False
+
+
+def test_audio_group_reset_leaves_other_groups_alone(flask_app):
+    client = csrf_client(flask_app)
+    client.post('/api/settings', headers=H, json={'changes': [
+        {'key': 'audio.volume', 'value': 20},
+        {'key': 'appearance.theme', 'value': 'dark'},
+    ]})
+    client.post('/api/settings/reset', headers=H, json={'group': 'Sound & feedback'})
+    values = client.get('/api/settings').get_json()['values']
+    assert values['audio.volume'] == reg.SETTINGS_BY_KEY['audio.volume'].default
+    assert values['appearance.theme'] == 'dark'   # different group — kept
+
+
+def test_settings_search_finds_volume(client):
+    results = client.get('/api/settings/search?q=volume').get_json()['results']
+    assert results and results[0]['key'] == 'audio.volume'
+
+
 # ── Settings that drive the engine ───────────────────────────────────
 
 def test_equipment_filter_narrows_generation(flask_app, monkeypatch):

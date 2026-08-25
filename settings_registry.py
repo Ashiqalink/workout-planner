@@ -507,7 +507,8 @@ SETTINGS = [
         key='audio.vibrate', label='Vibrate on transitions', group='Sound & feedback',
         type='bool', default=True,
         help='Phone haptics at the end of each block. Ignored on desktop.',
-        keywords=('vibrate', 'vibration', 'haptics', 'buzz', 'phone vibration'),
+        keywords=('vibrate', 'vibrating', 'vibration', 'haptics', 'buzz',
+                  'phone vibration'),
     ),
 
     # ── During a session ─────────────────────────────────────────────
@@ -989,7 +990,7 @@ def describe_changes(accepted, applied=True):
 
 _NEGATIVE_HINTS = ('turn off', 'switch off', 'disable', 'stop', 'no ', 'not ',
                    'never', 'hide', 'remove', 'without', 'dont', "don't",
-                   'mute', 'silence', 'quiet', 'less', 'off',
+                   'mute', 'silence', 'silent', 'quiet', 'less', 'off',
                    'smaller', 'shorter', 'lower', 'reduce', 'decrease', 'down',
                    'hate', 'annoying', 'sick of', 'tired of', 'get rid of')
 _POSITIVE_HINTS = ('turn on', 'switch on', 'enable', 'show', 'add', 'want',
@@ -1172,6 +1173,41 @@ def _boolean_intent(query):
     return positive > negative
 
 
+# Positive words that point at whatever the sentence is *about* rather than at
+# a switch: wishes ("I want the bell sound" wants a bell, not an unmute) and
+# directions ("and louder volume" turns up a number, it does not unmute).
+# Only 'turn on'/'switch on'/'enable'/'on' name a toggle outright; the rest
+# still read as positive intent, but a toggle they alone would switch on is an
+# assumption, re-examined in :func:`match_intent`.
+_SOFT_POSITIVE_HINTS = ('want', 'give me', 'show', 'add', 'let me', 'allow',
+                        'always', 'more', 'bigger', 'larger', 'longer',
+                        'higher', 'raise', 'increase', 'up', 'louder')
+
+_POSITIVE_HINTS_EXPLICIT = tuple(h for h in _POSITIVE_HINTS
+                                 if h not in _SOFT_POSITIVE_HINTS)
+
+
+def _positive_cue(query):
+    """Which positive hint decided the query's intent, or None if none did.
+
+    Among hints of the same kind a later cue wins, as in
+    :func:`_boolean_intent`. But a word that names a switch outright beats a
+    soft one wherever it sits: "turn on the bell sound and louder volume" is
+    still an explicit unmute, even though "louder" comes last and is only
+    speaking for the volume.
+    """
+    normalised = f' {_normalise(query)} '
+    best, cue = -1, None
+    for hints in (_POSITIVE_HINTS_EXPLICIT, _SOFT_POSITIVE_HINTS):
+        for hint in hints:
+            at = normalised.find(f' {hint.strip()} ')
+            if at > best:
+                best, cue = at, hint
+        if best >= 0:
+            return cue
+    return None
+
+
 def _has_direct_evidence(setting, query):
     """Whether the query names this setting itself — keyword or label, not
     merely one of its choice values. Guards list-typed settings: "streak"
@@ -1191,6 +1227,32 @@ def _has_direct_evidence(setting, query):
             return True
     label_stems = _stems(_tokens(setting.label))
     return bool(label_stems and label_stems <= query_stems)
+
+
+def _evidence_stems(setting, query):
+    """Which words of the query this setting's own vocabulary accounts for.
+
+    The same three sources :func:`score_setting` weighs — keywords, label,
+    choice spellings — but reported as the set of query stems they explain
+    rather than as a number. Used to spot a setting whose entire claim on a
+    sentence is already explained by another, better-fitting one.
+    """
+    normalised = _normalise(query)
+    padded = f' {normalised} '
+    query_stems = _stems(normalised.split())
+    found = set()
+    for keyword in setting.keywords:
+        key_norm = _normalise(keyword).strip()
+        if not key_norm:
+            continue
+        key_stems = _stems(key_norm.split())
+        if f' {key_norm} ' in padded or key_stems <= query_stems:
+            found |= key_stems & query_stems
+    found |= _stems(_tokens(setting.label)) & query_stems
+    for needle, _value in _choice_needles(setting):
+        if len(needle) > 2 and needle not in _GENERIC_CHOICE_WORDS and f' {needle} ' in padded:
+            found |= _stems(needle.split()) & query_stems
+    return found
 
 
 STRONG_MATCH = 6.0   # confident on its own, even alongside stronger matches
@@ -1223,14 +1285,21 @@ def match_intent(query, limit=3, current=None):
         key=lambda pair: pair[0], reverse=True,
     )
 
-    proposals = []
+    candidates = []
     for rank, (score, setting) in enumerate(ranked[:limit]):
         if score < WEAK_MATCH or (score < STRONG_MATCH and rank > 0):
             break
         value = None
+        assumed = False
 
         if setting.type == 'bool':
             intent = _boolean_intent(query)
+            # Naming a toggle with no on/off word is taken as asking for it
+            # ("big timer"), and so is a bare wish ("I want the bell sound").
+            # Both are assumptions, re-examined below; "turn on"/"no sound"
+            # name the toggle outright and are not.
+            assumed = (intent is None or
+                       (intent is True and _positive_cue(query) in _SOFT_POSITIVE_HINTS))
             if setting.intent_inverted and intent is not None:
                 intent = not intent
             value = True if intent is None else intent
@@ -1289,6 +1358,23 @@ def match_intent(query, limit=3, current=None):
         else:  # text — too open-ended to infer safely
             continue
 
+        candidates.append((setting, value, assumed))
+
+    # A toggle switched on purely by assumption must earn its place: if every
+    # word it matched is already explained by another setting the sentence
+    # picked out, it is riding along, not being asked for. "I want the bell
+    # sound" chooses the bell cue — the word "sound" is the cue's own noun,
+    # not a request to unmute. An explicit "no sound"/"turn on sound" carries
+    # its own intent and is never filtered.
+    explained = [(s, _evidence_stems(s, query))
+                 for s, _v, assumed in candidates if not assumed]
+    proposals = []
+    for setting, value, assumed in candidates:
+        if assumed:
+            mine = _evidence_stems(setting, query)
+            if mine and any(other is not setting and mine <= theirs
+                            for other, theirs in explained):
+                continue
         proposals.append({'key': setting.key, 'value': value})
 
     return proposals
