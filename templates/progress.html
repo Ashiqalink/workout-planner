@@ -12,7 +12,7 @@
 <div class="progress-page">
     <div class="page-header">
         <div class="breadcrumb"><a href="{{ url_for('index') }}">Home</a> › Progress</div>
-        <h1>📈 Progress Tracking</h1>
+        <h1>Progress Tracking</h1>
         <p>Monitor your training across all 5 domains</p>
     </div>
 
@@ -77,7 +77,7 @@
 
     {% if 'heatmap' in charts %}
     <div class="card" style="margin-bottom:24px;">
-        <div class="section-heading"><h2>🗓️ Activity Heatmap</h2></div>
+        <div class="section-heading"><h2>Activity Heatmap</h2></div>
         <div class="heatmap" id="progress-heatmap"></div>
         <div class="heatmap-legend">
             <span>less</span>
@@ -95,7 +95,7 @@
     {% if settings['session.tracking_mode'] != 'timer' %}
     <div class="card" style="margin-bottom:24px;" id="records-card" hidden>
         <div class="section-heading">
-            <h2>🏅 Personal Bests</h2>
+            <h2>Personal Bests</h2>
         </div>
         <div id="records-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;"></div>
     </div>
@@ -138,7 +138,7 @@
 
     <!-- Recent Sessions -->
     <div class="section-heading" style="margin:28px 0 16px;">
-        <h2>📅 Recent Sessions</h2>
+        <h2>Recent Sessions</h2>
     </div>
     {% if recent_sessions %}
     <div class="sessions-list">

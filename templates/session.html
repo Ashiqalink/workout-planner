@@ -271,7 +271,7 @@
             `<span class="session-meta-chip"><i class="icon-sm" data-lucide="dumbbell" ></i> ${n} exercises</span>`,
             `<span class="session-meta-chip"><i class="icon-sm" data-lucide="clock" ></i> ~${d} min</span>`,
             `<span class="session-meta-chip"><i class="icon-sm" data-lucide="activity" ></i> ${escapeHtml(currentWorkout.difficulty || 'Custom')}</span>`,
-            currentWorkout.engine ? `<span class="engine-badge engine-${currentWorkout.engine === 'ai' ? 'ai' : 'rules'}">${currentWorkout.engine === 'ai' ? '✨ AI-built' : 'rule-built'}</span>` : ''
+            currentWorkout.engine ? `<span class="engine-badge engine-${currentWorkout.engine === 'ai' ? 'ai' : 'rules'}">${currentWorkout.engine === 'ai' ? 'AI-built' : 'rule-built'}</span>` : ''
         ].join('');
         if (window.lucide) lucide.createIcons({ root: chips });
         document.getElementById('start-btn').style.display = 'inline-flex';
@@ -633,7 +633,7 @@
         document.getElementById('completed-exercises').textContent = sessionData.completedExercises;
         document.getElementById('total-time').textContent = sessionData.totalDuration;
         document.getElementById('session-score').textContent = pct + '%';
-        document.getElementById('complete-sub').textContent = pct >= 80 ? 'Outstanding effort! 🔥' : 'Good work — keep building the habit!';
+        document.getElementById('complete-sub').textContent = pct >= 80 ? 'Outstanding effort!' : 'Good work — keep building the habit!';
         document.getElementById('pause-btn').style.display = 'none';
         document.getElementById('resume-btn').style.display = 'none';
         document.getElementById('stop-btn').style.display = 'none';

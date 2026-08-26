@@ -2,49 +2,49 @@
 # Student Training System - Automated Setup Script
 # This script sets up the complete Flask application environment
 
-echo "🏋️  Student Training System Setup"
+echo "Student Training System Setup"
 echo "================================="
 echo ""
 
 # Check if Python 3 is installed
 if ! command -v python3 &> /dev/null; then
-    echo "❌ Python 3 is not installed. Please install Python 3.8+ first."
+    echo "Python 3 is not installed. Please install Python 3.8+ first."
     echo "   On Ubuntu/Debian: sudo apt update && sudo apt install python3 python3-pip python3-venv"
     exit 1
 fi
 
-echo "✅ Python 3 found: $(python3 --version)"
+echo "Python 3 found: $(python3 --version)"
 
 # Create project directory structure
-echo "📁 Creating project directory structure..."
+echo "Creating project directory structure..."
 mkdir -p data
 mkdir -p static
 mkdir -p templates
 mkdir -p instance
 
-echo "✅ Directory structure created"
+echo "Directory structure created"
 
 # Create virtual environment
-echo "🔧 Creating Python virtual environment..."
+echo "Creating Python virtual environment..."
 python3 -m venv venv
 
 # Activate virtual environment
-echo "🚀 Activating virtual environment..."
+echo "Activating virtual environment..."
 source venv/bin/activate
 
 # Upgrade pip
-echo "⬆️  Upgrading pip..."
+echo "Upgrading pip..."
 pip install --upgrade pip
 
 # Install requirements
-echo "📦 Installing Python dependencies..."
+echo "Installing Python dependencies..."
 pip install -r requirements.txt
 
-echo "✅ Dependencies installed successfully"
+echo "Dependencies installed successfully"
 
 # Create instance configuration if it doesn't exist
 if [ ! -f "instance/config.py" ]; then
-    echo "⚙️  Creating instance configuration..."
+    echo "Creating instance configuration..."
     cat > instance/config.py << 'EOF'
 import os
 from datetime import timedelta
@@ -65,12 +65,12 @@ TESTING = False
 # CSRF_ENABLED = True
 # WTF_CSRF_ENABLED = True
 EOF
-    echo "✅ Instance configuration created"
+    echo "Instance configuration created"
 fi
 
 # Create .gitignore
 if [ ! -f ".gitignore" ]; then
-    echo "📝 Creating .gitignore..."
+    echo "Creating .gitignore..."
     cat > .gitignore << 'EOF'
 # Python
 __pycache__/
@@ -127,12 +127,12 @@ Thumbs.db
 .env.test.local
 .env.production.local
 EOF
-    echo "✅ .gitignore created"
+    echo ".gitignore created"
 fi
 
 # Create manifest.json for PWA features
 if [ ! -f "static/manifest.json" ]; then
-    echo "📱 Creating PWA manifest..."
+    echo "Creating PWA manifest..."
     cat > static/manifest.json << 'EOF'
 {
   "name": "Student Training System",
@@ -151,11 +151,11 @@ if [ ! -f "static/manifest.json" ]; then
   ]
 }
 EOF
-    echo "✅ PWA manifest created"
+    echo "PWA manifest created"
 fi
 
 # Initialize database and load sample data
-echo "🗄️  Initializing database..."
+echo "Initializing database..."
 python3 -c "
 import sys
 sys.path.append('.')
@@ -166,7 +166,7 @@ print('Database initialized successfully')
 "
 
 echo ""
-echo "🎉 Setup Complete!"
+echo "Setup Complete!"
 echo "=================="
 echo ""
 echo "Your Student Training System is ready to use!"
@@ -184,4 +184,4 @@ echo "- Templates: templates/ directory"
 echo ""
 echo "To deactivate virtual environment: deactivate"
 echo ""
-echo "Happy training! 💪"
+echo "Happy training!"

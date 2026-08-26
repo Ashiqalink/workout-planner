@@ -11,7 +11,7 @@
             <div class="breadcrumb">
                 <a href="{{ url_for('index') }}">Home</a> › Library
             </div>
-            <h1>📚 Exercise Library</h1>
+            <h1>Exercise Library</h1>
             <p>Browse all exercises across 5 training domains</p>
         </div>
         {% if session.get('username') %}
@@ -81,7 +81,7 @@
 
     <!-- Search bar -->
     <div class="search-bar">
-        <span style="color:var(--text-light);font-size:1.05rem;">🔍</span>
+        <span style="color:var(--text-light);font-size:1.05rem;transition:color 0.2s;"><i data-lucide="search"></i></span>
         <input type="text" id="search-input" placeholder="Search by name, muscles, or description…">
         <button class="btn btn-sm btn-primary" onclick="performSearch()" id="search-btn">Search</button>
         <button class="btn btn-sm btn-ghost" onclick="clearSearch()">Clear</button>
@@ -109,12 +109,10 @@
         <div class="filter-pills" id="difficulty-pills">
             <button class="filter-pill active" data-value="" onclick="setFilter('difficulty','',this)">All
                 Levels</button>
-            <button class="filter-pill" data-value="beginner" onclick="setFilter('difficulty','beginner',this)">🟢
-                Beginner</button>
+            <button class="filter-pill" data-value="beginner" onclick="setFilter('difficulty','beginner',this)">Beginner</button>
             <button class="filter-pill" data-value="intermediate"
-                onclick="setFilter('difficulty','intermediate',this)">🟡 Intermediate</button>
-            <button class="filter-pill" data-value="advanced" onclick="setFilter('difficulty','advanced',this)">🔴
-                Advanced</button>
+                onclick="setFilter('difficulty','intermediate',this)">Intermediate</button>
+            <button class="filter-pill" data-value="advanced" onclick="setFilter('difficulty','advanced',this)">Advanced</button>
         </div>
     </div>
 

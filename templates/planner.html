@@ -3,11 +3,9 @@
 {% block title %}Training Planner – FitTrack{% endblock %}
 
 {% block content %}
-<div class="planner-page">
-
-    <div class="page-header">
+<div class="planner-page">        <div class="page-header">
         <div class="breadcrumb"><a href="{{ url_for('index') }}">Home</a> › Planner</div>
-        <h1>📋 Training Planner</h1>
+        <h1>Training Planner</h1>
         <p>Create a custom workout tailored to your goals and available time</p>
     </div>
 
@@ -58,8 +56,8 @@
                 <div class="form-group">
                     <label for="difficulty">Difficulty Level</label>
                     <select id="difficulty" name="difficulty" class="form-control" required>
-                        {% for value, label in [('beginner','🟢 Beginner'), ('intermediate','🟡 Intermediate'),
-                                                ('advanced','🔴 Advanced')] %}
+                        {% for value, label in [('beginner','Beginner'), ('intermediate','Intermediate'),
+                                                ('advanced','Advanced')] %}
                         <option value="{{ value }}"
                                 {{ 'selected' if settings['workout.default_difficulty'] == value }}>{{ label }}</option>
                         {% endfor %}
@@ -85,16 +83,16 @@
                 <!-- The settings that will quietly shape this workout -->
                 <div id="active-modifiers" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:18px;">
                     {% if settings['workout.include_warmup'] %}
-                    <span class="session-meta-chip">🔥 {{ settings['workout.warmup_minutes'] }} min warm-up</span>
+                    <span class="session-meta-chip">{{ settings['workout.warmup_minutes'] }} min warm-up</span>
                     {% endif %}
                     {% if settings['workout.include_cooldown'] %}
-                    <span class="session-meta-chip">🧊 {{ settings['workout.cooldown_minutes'] }} min cool-down</span>
+                    <span class="session-meta-chip">{{ settings['workout.cooldown_minutes'] }} min cool-down</span>
                     {% endif %}
                     {% if settings['workout.exclude_keywords'] %}
-                    <span class="session-meta-chip">🚫 excluding: {{ settings['workout.exclude_keywords'] }}</span>
+                    <span class="session-meta-chip">excluding: {{ settings['workout.exclude_keywords'] }}</span>
                     {% endif %}
                     {% if settings['workout.variety'] == 'strict' %}
-                    <span class="session-meta-chip">🔀 no recent repeats</span>
+                    <span class="session-meta-chip">no recent repeats</span>
                     {% endif %}
                 </div>
 
@@ -159,7 +157,7 @@
                 </div>
             </div>
 
-            <button class="btn btn-primary btn-full planner-preview-play-btn" onclick="startWorkout()">▶ Start Workout</button>
+            <button class="btn btn-primary btn-full planner-preview-play-btn" onclick="startWorkout()">Start Workout</button>
         </div>
         <!-- Placeholder when no workout generated yet -->
         <div id="preview-placeholder" class="card-flat">
@@ -232,7 +230,7 @@
 
         document.getElementById('total-exercises').textContent = workout.exercises.length;
         document.getElementById('total-duration').textContent = parseFloat(workout.total_duration).toFixed(1);
-        const diffMap = { beginner: '🟢', intermediate: '🟡', advanced: '🔴' };
+        const diffMap = { beginner: '', intermediate: '', advanced: '' };
         const dKey = (workout.difficulty || '').toLowerCase();
         document.getElementById('workout-difficulty').textContent = (diffMap[dKey] || '') + ' ' + (workout.difficulty || '—');
 
@@ -240,7 +238,7 @@
         // is the ai.fallback_notice setting's whole purpose.
         const badge = document.getElementById('engine-badge');
         if (workout.engine === 'ai') {
-            badge.innerHTML = '<span class="engine-badge engine-ai">✨ built by your local model</span>';
+            badge.innerHTML = '<span class="engine-badge engine-ai">built by your local model</span>';
         } else if (FT.get('ai.fallback_notice', true) &&
                    FT.get('ai.enabled', true) && FT.get('ai.workout_generation', true)) {
             badge.innerHTML = '<span class="engine-badge engine-rules">built by the rule engine (model unavailable)</span>';

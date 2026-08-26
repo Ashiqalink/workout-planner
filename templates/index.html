@@ -21,8 +21,12 @@
         <h1>Your Training Dashboard</h1>
         <p class="subtitle">Track progress, plan sessions, and hit your goals.</p>
         <div class="hero-actions">
-            <a href="{{ url_for('training_session') }}" class="btn-hero-primary">▶ Start Session</a>
-            <a href="{{ url_for('planner') }}" class="btn-hero-outline">Plan Workout</a>
+            <a href="{{ url_for('training_session') }}" class="btn-hero-primary">
+                <i class="icon-lg" data-lucide="play"></i> Start Session
+            </a>
+            <a href="{{ url_for('planner') }}" class="btn-hero-outline">
+                <i class="icon-lg" data-lucide="calendar"></i> Plan Workout
+            </a>
         </div>
         <div class="hero-date">
             <span class="day" id="hero-day"></span>
@@ -90,7 +94,7 @@
             </div>
             {% if rest_day_today %}
             <h3 style="font-family:var(--font-head);font-size:1.3rem;color:var(--text);margin-bottom:8px;">
-                Planned rest day 🛋️
+                Planned rest day
             </h3>
             <p style="color:var(--text-muted);margin-bottom:14px;">
                 {{ rest_day_today }} is one of your rest days, so nothing is scheduled — and your
@@ -162,7 +166,7 @@
         <!-- Weekly goal -->
         <div class="card full-width slide-up">
             <div class="section-heading">
-                <h2>🎯 This Week's Goal</h2>
+                <h2>This Week's Goal</h2>
                 <a href="{{ url_for('settings_page') }}#focus=goals.weekly_sessions">Adjust →</a>
             </div>
             <div class="goal-card">
@@ -184,7 +188,7 @@
                     {% if goal.target_sessions %}
                     <p style="font-size:0.9rem;color:var(--text);">
                         <strong>{{ goal.sessions }}</strong> of {{ goal.target_sessions }} sessions this week
-                        {% if goal.sessions_pct >= 100 %} — goal hit! 🎉{% endif %}
+                        {% if goal.sessions_pct >= 100 %} — goal hit!{% endif %}
                     </p>
                     {% endif %}
                     {% if goal.target_minutes %}
@@ -201,7 +205,7 @@
         <!-- Saved Workout Templates -->
         <div class="card full-width slide-up" id="saved-workouts-card" style="display:none;">
             <div class="section-heading">
-                <h2>💾 Saved Workout Templates</h2>
+                <h2>Saved Workout Templates</h2>
             </div>
             <div class="saved-templates-grid" id="saved-templates-list">
                 <!-- Templates loaded via JS -->
@@ -213,7 +217,7 @@
         <!-- Activity heatmap -->
         <div class="card full-width slide-up">
             <div class="section-heading">
-                <h2>🗓️ Last 12 Weeks</h2>
+                <h2>Last 12 Weeks</h2>
             </div>
             <div class="heatmap" id="dash-heatmap"></div>
             <div class="heatmap-legend">
@@ -232,7 +236,7 @@
         <!-- Recent Activity -->
         <div class="card full-width" style="animation-delay:0.3s">
             <div class="section-heading">
-                <h2>📅 Recent Activity</h2>
+                <h2>Recent Activity</h2>
                 <a href="{{ url_for('progress') }}">See all →</a>
             </div>
             {% if recent_sessions %}
@@ -346,12 +350,12 @@
                     window.location.href = '/session';
                 } else {
                     if (window.showToast) showToast('Error: ' + (data.error || 'Could not generate workout'), 'error');
-                    if (btn) { btn.textContent = '▶ Start Session'; btn.disabled = false; }
+                    if (btn) { btn.textContent = 'Start Session'; btn.disabled = false; }
                 }
             })
             .catch(() => {
                 if (window.showToast) showToast('Network error. Please try again.', 'error');
-                if (btn) { btn.textContent = '▶ Start Session'; btn.disabled = false; }
+                if (btn) { btn.textContent = 'Start Session'; btn.disabled = false; }
             });
     }
 
