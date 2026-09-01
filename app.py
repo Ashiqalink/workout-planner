@@ -1028,7 +1028,8 @@ def _strip_code_fence(content):
 MODEL_SHORTLIST = 24        # candidates shown to the model, at most
 
 
-def shortlist_candidates(pool, difficulty, avoid=(), limit=MODEL_SHORTLIST, seed=''):
+def shortlist_candidates(pool, difficulty, avoid=(), limit=MODEL_SHORTLIST, seed='',
+                         focus=None, history=None):
     """The slice of the pool the model is allowed to choose from.
 
     A 163-exercise list is not a prompt a 0.5–4B model reads carefully; it
@@ -1038,7 +1039,8 @@ def shortlist_candidates(pool, difficulty, avoid=(), limit=MODEL_SHORTLIST, seed
     is therefore the engine's own shortlist, and the prompt stays short — which
     at this model size is a correctness feature, not a cost optimisation.
     """
-    return select_balanced(pool, difficulty, avoid, limit, seed)
+    return select_balanced(pool, difficulty, avoid, limit, seed,
+                          focus=focus, history=history)
 
 
 def generate_workout_via_llm(domains, duration, difficulty, focus, candidates,
@@ -1306,36 +1308,6 @@ def _minutes(exercise):
         return 0.0
 
 
-def order_exercises(exercises, mode):
-    """Sequence a chosen set. Never adds or removes anything."""
-    items = list(exercises)
-    if mode == 'hardest_first':
-        return sorted(items, key=lambda e: -_difficulty_rank(e))
-    if mode == 'easiest_first':
-        return sorted(items, key=_difficulty_rank)
-    if mode == 'longest_first':
-        return sorted(items, key=lambda e: -_minutes(e))
-    if mode == 'shortest_first':
-        return sorted(items, key=_minutes)
-    if mode == 'alternate':
-        # Round-robin across categories so consecutive blocks rarely repeat a
-        # muscle group. With a single category this returns the input order,
-        # which is what keeps one-domain workouts in the order they were chosen.
-        buckets = {}
-        for ex in items:
-            buckets.setdefault(ex.get('category') or 'General', []).append(ex)
-        keys = list(buckets)
-        if len(keys) < 2:
-            return items
-        ordered = []
-        while any(buckets[k] for k in keys):
-            for key in keys:
-                if buckets[key]:
-                    ordered.append(buckets[key].pop(0))
-        return ordered
-    return items  # 'as_generated'
-
-
 # ── Sets, rest and honest wall-clock timing ──────────────────────────
 #
 # The library stores one *set* of each exercise, not a whole block: the median
@@ -1518,9 +1490,111 @@ def plan_total_minutes(blocks):
     return round(total, 1)
 
 
-# ── Choosing what goes in ────────────────────────────────────────────
+def refit_plan(blocks, minutes):
+    """Trim an already-planned, already-ordered session back inside `minutes`.
+
+    Two things happen after `plan_sets` has balanced its budget, and both can
+    push the total past the promise by a few seconds:
+
+    - **Reordering.** The rest between two exercises is the *second* one's, so
+      moving a short-rest block to the front (or a long-rest one out of it)
+      changes the wall clock even though nothing was added. Ordering has to run
+      after planning — the user's 'Exercise order' choice must not be what
+      decides which exercises get dropped — so the correction happens here.
+    - **Bookends.** A warm-up and a cool-down are planned against their own
+      minutes; the two transitions joining them to the main work are not in
+      anybody's budget.
+
+    Sets come off the deepest block first, so the trim is spread rather than
+    gutting one exercise; only when everything is down to a single set does a
+    block go. Returns a new list, and never touches `minutes <= 0`.
+    """
+    if not blocks or minutes <= 0:
+        return list(blocks)
+    if not all(b.get('sets') and b.get('set_seconds') for b in blocks):
+        return list(blocks)      # an older saved plan carries no set figures
+    plan = [dict(b) for b in blocks]
+
+    def retime(block):
+        block['work_seconds'] = block['set_seconds'] * block['sets']
+        block['duration'] = round(block_seconds(
+            block['set_seconds'], block['sets'], block['rest_seconds']) / 60.0, 2)
+
+    while plan and plan_total_minutes(plan) > minutes:
+        deepest = max(range(len(plan)), key=lambda i: (plan[i]['sets'], -i))
+        if plan[deepest]['sets'] > 1:
+            plan[deepest]['sets'] -= 1
+            retime(plan[deepest])
+        else:
+            plan.pop()
+    return plan
+
+
+# ── Reading an exercise: muscles, regions, movement patterns ─────────
+#
+# The library labels muscles in free text ("Chest, shoulders, triceps"), which
+# is precise enough to spot a repeat but too fine to balance a session with: a
+# workout of Diamond Push-ups, Decline Push-ups and Push-up Progression shares
+# no *token* problem, it shares a movement. So the selector reads three levels
+# of the same exercise — its muscle words, the body region they belong to, and
+# the movement pattern its name describes — and charges for a repeat at every
+# level. That is what stops three presses in a row without needing a model.
 
 _MUSCLE_SPLIT = re.compile(r'[,/&]| and ')
+
+MUSCLE_REGIONS = {
+    'chest': 'push', 'shoulders': 'push', 'triceps': 'push', 'deltoids': 'push',
+    'back': 'pull', 'lats': 'pull', 'biceps': 'pull', 'forearms': 'pull',
+    'rear delts': 'pull', 'traps': 'pull', 'upper back': 'pull',
+    'quadriceps': 'legs', 'quads': 'legs', 'hamstrings': 'legs', 'glutes': 'legs',
+    'calves': 'legs', 'adductors': 'legs', 'hip abductors': 'legs',
+    'hip flexors': 'legs', 'lower body': 'legs', 'legs': 'legs', 'ankles': 'legs',
+    'core': 'core', 'obliques': 'core', 'lower abs': 'core', 'abs': 'core',
+    'lower back': 'core', 'abdominals': 'core',
+    'cardio': 'cardio', 'cardiovascular fitness': 'cardio', 'endurance': 'cardio',
+    'brain': 'cognitive', 'memory': 'cognitive', 'working memory': 'cognitive',
+    'fluid intelligence': 'cognitive', 'pattern recognition': 'cognitive',
+    'spatial awareness': 'cognitive', 'creativity': 'cognitive',
+    'concentration': 'cognitive', 'focus': 'cognitive', 'attention': 'cognitive',
+    'coordination': 'neural', 'balance': 'neural', 'agility': 'neural',
+    'speed': 'neural', 'reaction time': 'neural', 'rhythm': 'neural',
+    'control': 'neural', 'power': 'neural',
+    'full body': 'full body', 'upper body': 'push', 'neck': 'mobility',
+    'wrists': 'mobility', 'flexibility': 'mobility', 'strength': 'full body',
+}
+
+# Ordered: the first phrase found in the name wins, so "Plank to Push-up" is a
+# push and "Mountain Climber Twists" is core. Name before muscles, because the
+# name is what the exercise *is* and the muscle list is what it happens to hit.
+MOVEMENT_PATTERN_RULES = (
+    ('cognitive', ('memory', 'math', 'mindful', 'brain', 'n-back', 'teaser',
+                   'recognition', 'reaction time', 'spatial', 'rhythm',
+                   'dual task', 'pattern')),
+    ('push', ('push-up', 'push up', 'pushup', 'dip', 'press', 'overhead reach')),
+    ('pull', ('row', 'pull', 'superman', 'chin')),
+    ('hinge', ('bridge', 'hip thrust', 'deadlift', 'good morning', 'inchworm',
+               'glute')),
+    ('squat', ('squat', 'wall sit', 'step-up', 'step up', 'knee extension')),
+    ('lunge', ('lunge', 'skater', 'split')),
+    ('jump', ('jump', 'hop', 'bound', 'burpee', 'skip', 'jack')),
+    ('core', ('plank', 'crunch', 'dead bug', 'leg raise', 'hollow', 'tabletop',
+              'shoulder tap', 'twist', 'bear crawl', 'crab walk', 'sit-up')),
+    ('carry', ('hold', 'isometric', 'wall sit', 'carry')),
+    ('mobility', ('stretch', 'circle', 'swing', 'roll', 'mobility', 'hug',
+                  'toe touch', 'heel to butt')),
+    ('locomotion', ('run', 'sprint', 'shuttle', 'shuffle', 'carioca', 'grapevine',
+                    'weave', 'walk', 'jog', 'march', 'climb', 'knee', 'kick',
+                    'boxing', 'danc', 'drill', 'step', 'ladder', 'cone',
+                    'backpedal', 'quick feet', 'figure 8', 't-drill', 'balance')),
+    ('calves', ('calf raise',)),
+)
+
+_ANATOMICAL_REGIONS = {'push', 'pull', 'legs', 'core'}
+
+_REGION_TO_PATTERN = {'push': 'push', 'pull': 'pull', 'legs': 'squat',
+                      'core': 'core', 'cardio': 'locomotion',
+                      'cognitive': 'cognitive', 'neural': 'locomotion',
+                      'mobility': 'mobility'}
 
 
 def muscle_tokens(exercise):
@@ -1529,31 +1603,198 @@ def muscle_tokens(exercise):
     return {t.strip().lower() for t in _MUSCLE_SPLIT.split(raw) if t.strip()}
 
 
-def selection_penalty(exercise, difficulty, avoid, category_counts, used_muscles):
+def muscle_regions(exercise):
+    """Coarse regions a muscle list belongs to — the unit session balance uses.
+
+    'Chest, shoulders, triceps' and 'Chest, triceps' are different token sets
+    but the same region ({push}), which is the whole point: two pressing
+    exercises should read as a repeat even when their labels differ.
+    """
+    regions = {MUSCLE_REGIONS[t] for t in muscle_tokens(exercise) if t in MUSCLE_REGIONS}
+    # 'Full body, power' is still a full-body exercise; 'Full body, chest' is a
+    # chest one that was labelled loosely. Only a named body part displaces it.
+    if regions & _ANATOMICAL_REGIONS:
+        regions.discard('full body')
+    return regions
+
+
+def movement_pattern(exercise):
+    """The movement an exercise is, as one word — 'push', 'squat', 'locomotion'.
+
+    Read from the name first, then from the regions, then from the category, so
+    a library row with no muscle labels still classifies to something usable.
+    """
+    name = str(exercise.get('name') or '').lower()
+    for pattern, phrases in MOVEMENT_PATTERN_RULES:
+        if any(phrase in name for phrase in phrases):
+            return pattern
+    for region in sorted(muscle_regions(exercise)):
+        if region in _REGION_TO_PATTERN:
+            return _REGION_TO_PATTERN[region]
+    return str(exercise.get('category') or 'general').lower()
+
+
+# ── Focus: what the user asked to emphasise ──────────────────────────
+#
+# The client sends a small vocabulary ('upper_body', 'lower_body', 'core',
+# 'cardio', 'flexibility'); free text from anywhere else is matched word by
+# word. Focus only *biases the selector* — it never widens the pool and never
+# reaches the explanation, so nothing the user reads can claim more than the
+# engine actually did.
+
+FOCUS_PROFILES = {
+    'upper_body': ({'push', 'pull'}, ('upper', 'chest', 'shoulder', 'arm',
+                                      'tricep', 'bicep', 'back', 'push', 'pull')),
+    'lower_body': ({'legs'}, ('lower', 'leg', 'squat', 'lunge', 'glute',
+                              'quad', 'hamstring', 'calf', 'hip')),
+    'core': ({'core'}, ('core', 'abs', 'plank', 'oblique', 'trunk')),
+    'cardio': ({'cardio'}, ('cardio', 'run', 'jump', 'heart', 'aerobic',
+                            'conditioning', 'sprint')),
+    'flexibility': ({'mobility'}, ('stretch', 'mobility', 'flexib', 'circle',
+                                   'swing', 'range of motion')),
+    'full_body': ({'full body'}, ('full body', 'total body', 'whole body')),
+}
+
+_FOCUS_ALIASES = {
+    'upper': 'upper_body', 'upper body': 'upper_body', 'push': 'upper_body',
+    'lower': 'lower_body', 'lower body': 'lower_body', 'legs': 'lower_body',
+    'abs': 'core', 'trunk': 'core',
+    'conditioning': 'cardio', 'endurance': 'cardio',
+    'mobility': 'flexibility', 'stretching': 'flexibility',
+    'full body': 'full_body', 'total body': 'full_body',
+}
+
+
+def focus_profile(focus):
+    """Turn a focus string into (regions, keywords), or None when there is none.
+
+    Accepts the client's vocabulary ('upper_body'), the everyday phrasings a
+    user or a program CSV writes ('Upper Body'), and anything else as bare
+    keywords — an unknown focus still steers selection instead of being lost.
+    """
+    text = str(focus or '').strip().lower().replace('-', ' ')
+    if not text:
+        return None
+    key = text.replace(' ', '_')
+    if key in FOCUS_PROFILES:
+        return FOCUS_PROFILES[key]
+    if text in _FOCUS_ALIASES:
+        return FOCUS_PROFILES[_FOCUS_ALIASES[text]]
+    for alias, target in _FOCUS_ALIASES.items():
+        if alias in text:
+            return FOCUS_PROFILES[target]
+    words = tuple(w for w in re.split(r'[^a-z]+', text) if len(w) > 2)
+    return (set(), words) if words else None
+
+
+def focus_match(exercise, profile):
+    """How well one exercise serves the focus, 0.0 to 1.0.
+
+    A region hit is the strong signal (the exercise genuinely trains that part);
+    a word hit in the name or muscle list is the weaker one, so a keyword-only
+    focus still ranks sensibly.
+    """
+    if not profile:
+        return 0.0
+    regions, keywords = profile
+    score = 0.0
+    if regions and (regions & muscle_regions(exercise)):
+        score += 0.7
+    if keywords:
+        haystack = f"{exercise.get('name', '')} {exercise.get('target_muscles', '')}".lower()
+        if any(word in haystack for word in keywords):
+            score += 0.5 if regions else 1.0
+    return min(1.0, score)
+
+
+# ── Choosing what goes in ────────────────────────────────────────────
+
+# Penalty weights. Kept together because they only mean anything relative to
+# each other: difficulty is the hardest constraint, a repeated movement costs
+# more than a repeated category, and a focus hit is worth about one category
+# clash — enough to steer the session, never enough to override difficulty.
+W_DIFFICULTY = 3.0
+W_CATEGORY = 2.0
+W_MUSCLE = 2.0
+W_REGION = 1.5
+W_PATTERN = 2.5
+W_RECENT = 4.0
+W_HISTORY = 1.5
+W_FOCUS = 4.0
+W_UNLABELLED = 0.5
+FOCUS_REPEAT_DISCOUNT = 0.75   # how much a focus hit relaxes the spread terms
+
+
+def new_balance():
+    """The running tally of what a workout already contains."""
+    return {'categories': {}, 'muscles': {}, 'regions': {}, 'patterns': {}}
+
+
+def add_to_balance(balance, exercise):
+    """Record one pick, so the next score sees it."""
+    balance['categories'][exercise.get('category') or 'General'] = \
+        balance['categories'].get(exercise.get('category') or 'General', 0) + 1
+    for token in muscle_tokens(exercise):
+        balance['muscles'][token] = balance['muscles'].get(token, 0) + 1
+    for region in muscle_regions(exercise):
+        balance['regions'][region] = balance['regions'].get(region, 0) + 1
+    pattern = movement_pattern(exercise)
+    balance['patterns'][pattern] = balance['patterns'].get(pattern, 0) + 1
+    return balance
+
+
+def _mean_load(counts, keys):
+    if not keys:
+        return 0.0
+    return sum(counts.get(k, 0) for k in keys) / float(len(keys))
+
+
+def selection_penalty(exercise, difficulty, avoid, balance,
+                      focus=None, history=None):
     """Lower is better. Deterministic, so the same request plans the same way.
 
-    Four pressures, in the order they matter for a training session:
-    difficulty match, then spread across the domains asked for, then muscle
-    groups that have not been worked yet, then anything trained recently.
+    Six pressures, in the order they matter for a training session: difficulty
+    match, then what the user asked to emphasise, then a movement pattern the
+    session has already used, then spread across the domains asked for and the
+    muscles not yet worked, then anything trained recently.
+
+    Every term counts *how many times* something has appeared rather than
+    whether it has. An earlier version used a set of muscles already worked, so
+    the second chest exercise and the fourth cost exactly the same and a
+    strength session drifted into three presses in a row.
     """
     target_rank = {'beginner': 0, 'intermediate': 1, 'advanced': 2}.get(
         str(difficulty or '').lower())
     if target_rank is None:
         penalty = 0.0
     else:
-        penalty = 3.0 * abs(_difficulty_rank(exercise) - target_rank)
+        penalty = W_DIFFICULTY * abs(_difficulty_rank(exercise) - target_rank)
 
-    penalty += 2.0 * category_counts.get(exercise.get('category') or 'General', 0)
+    match = focus_match(exercise, focus)
+    penalty -= W_FOCUS * match
+    # Asking for an upper-body session is asking for the upper body *again and
+    # again*, so a focus hit buys permission to repeat its region, its muscles
+    # and its category — but never its movement: push, push, push is still a
+    # worse upper-body workout than push, pull, push, pull.
+    spread = 1.0 - FOCUS_REPEAT_DISCOUNT * match
+
+    penalty += W_PATTERN * balance['patterns'].get(movement_pattern(exercise), 0)
+    penalty += spread * W_CATEGORY * balance['categories'].get(
+        exercise.get('category') or 'General', 0)
 
     tokens = muscle_tokens(exercise)
     if tokens:
-        overlap = len(tokens & used_muscles) / float(len(tokens))
-        penalty += 2.0 * overlap
+        penalty += spread * W_MUSCLE * _mean_load(balance['muscles'], tokens)
+        penalty += spread * W_REGION * _mean_load(
+            balance['regions'], muscle_regions(exercise))
     else:
-        penalty += 0.5  # unlabelled exercises can't be balanced, so mildly deprioritise
+        penalty += W_UNLABELLED  # unlabelled exercises can't be balanced
+
+    if history:
+        penalty += W_HISTORY * _mean_load(history, muscle_regions(exercise))
 
     if str(exercise.get('name', '')).lower() in avoid:
-        penalty += 4.0
+        penalty += W_RECENT
     return penalty
 
 
@@ -1568,31 +1809,129 @@ def _tiebreak(name, seed):
     return hashlib.md5(f"{seed}|{name}".encode('utf-8')).hexdigest()
 
 
-def select_balanced(pool, difficulty, avoid=(), limit=MAX_EXERCISES, seed=''):
+def select_balanced(pool, difficulty, avoid=(), limit=MAX_EXERCISES, seed='',
+                    focus=None, history=None):
     """Pick up to `limit` exercises that cover the pool instead of scanning it.
 
     Greedy, but the score is recomputed after every pick, so each choice sees
-    which categories and muscles the workout already has. That is what stops a
-    'Strength + Endurance' request coming back as eight chest exercises in
-    database order, which is what a plain greedy fill always did.
+    which categories, muscles, regions and movement patterns the workout
+    already has. That is what stops a 'Strength + Endurance' request coming
+    back as eight chest exercises in database order, which is what a plain
+    greedy fill always did.
     """
     avoid = {str(n).lower() for n in (avoid or ())}
+    profile = focus if isinstance(focus, tuple) else focus_profile(focus)
     remaining = list(pool)
-    chosen, category_counts, used_muscles = [], {}, set()
+    chosen, balance = [], new_balance()
 
     while remaining and len(chosen) < limit:
         best = min(remaining, key=lambda ex: (
-            selection_penalty(ex, difficulty, avoid, category_counts, used_muscles),
+            selection_penalty(ex, difficulty, avoid, balance, profile, history),
             _tiebreak(str(ex.get('name', '')), seed)))
         remaining.remove(best)
         chosen.append(best)
-        category = best.get('category') or 'General'
-        category_counts[category] = category_counts.get(category, 0) + 1
-        used_muscles |= muscle_tokens(best)
+        add_to_balance(balance, best)
     return chosen
 
 
-def select_exercises_rule_based(pool, duration, difficulty, settings, avoid=(), seed=''):
+# ── Sequencing: which order the chosen work is done in ───────────────
+
+
+def _adjacency_cost(exercise, previous):
+    """How much `exercise` clashes with the blocks just before it.
+
+    Back-to-back work on the same pattern or the same region is the one
+    ordering mistake that actually costs a trainee reps — the immediately
+    preceding block counts double the one before it.
+    """
+    cost = 0.0
+    for distance, earlier in enumerate(reversed(previous[-2:])):
+        weight = 1.0 / (distance + 1)
+        if movement_pattern(exercise) == movement_pattern(earlier):
+            cost += 3.0 * weight
+        shared = muscle_regions(exercise) & muscle_regions(earlier)
+        if shared:
+            cost += 2.0 * weight * len(shared)
+        if (exercise.get('category') or '') == (earlier.get('category') or ''):
+            cost += 1.0 * weight
+    return cost
+
+
+def sequence_cost(exercises):
+    """Total clash across a whole ordering — the number the sequencer minimises."""
+    items = list(exercises)
+    return sum(_adjacency_cost(items[i], items[:i]) for i in range(1, len(items)))
+
+
+def sequence_for_recovery(exercises):
+    """Order a chosen set so consecutive blocks rest each other. Adds nothing.
+
+    Greedy first — keep the selector's best pick as the opener, then repeatedly
+    take whichever remaining exercise clashes least with what was just done —
+    and then a swap pass, because greedy alone defers the awkward exercises and
+    ends up stacking them: six strength blocks with three presses among them
+    came back with all three presses last. Swapping any two positions that
+    lowers the total cost fixes that, and with at most MAX_EXERCISES blocks the
+    whole pass is a few hundred comparisons.
+
+    Deterministic throughout: ties break on the order the exercises were
+    chosen, and a swap must strictly improve the total to be taken.
+    """
+    items = list(exercises)
+    if len(items) < 3:
+        return items
+    ordered, remaining = [items[0]], items[1:]
+    while remaining:
+        best = min(range(len(remaining)),
+                   key=lambda i: (_adjacency_cost(remaining[i], ordered), i))
+        ordered.append(remaining.pop(best))
+
+    cost = sequence_cost(ordered)
+    for _ in range(len(ordered)):
+        improved = False
+        for i in range(len(ordered) - 1):
+            for j in range(i + 1, len(ordered)):
+                swapped = list(ordered)
+                swapped[i], swapped[j] = swapped[j], swapped[i]
+                candidate = sequence_cost(swapped)
+                if candidate < cost - 1e-9:
+                    ordered, cost, improved = swapped, candidate, True
+        if not improved:
+            break
+    return ordered
+
+
+def order_exercises(exercises, mode):
+    """Sequence a chosen set. Never adds or removes anything."""
+    items = list(exercises)
+    if mode == 'hardest_first':
+        return sorted(items, key=lambda e: -_difficulty_rank(e))
+    if mode == 'easiest_first':
+        return sorted(items, key=_difficulty_rank)
+    if mode == 'longest_first':
+        return sorted(items, key=lambda e: -_minutes(e))
+    if mode == 'shortest_first':
+        return sorted(items, key=_minutes)
+    if mode == 'alternate':
+        # Spread the work: consecutive blocks avoid repeating a movement
+        # pattern, a body region and a category, in that order of importance.
+        # The old version round-robined categories alone, which did nothing at
+        # all to a single-category session — exactly the case (a pure strength
+        # workout) where ordering matters most.
+        return sequence_for_recovery(items)
+    return items  # 'as_generated'
+
+
+# ── Filling the time asked for ───────────────────────────────────────
+
+
+def _plan_shortfall(blocks, minutes):
+    """Minutes of the request a plan leaves unspent (0 when it fills it)."""
+    return max(0.0, float(minutes or 0) - plan_total_minutes(blocks))
+
+
+def select_exercises_rule_based(pool, duration, difficulty, settings, avoid=(),
+                                seed='', focus=None, history=None):
     """Fill `duration` minutes from `pool` without a model.
 
     This is the engine's own answer, used whenever the model is off, absent or
@@ -1601,17 +1940,30 @@ def select_exercises_rule_based(pool, duration, difficulty, settings, avoid=(), 
 
     It widens its search in defined steps rather than returning a thin workout:
     the requested difficulty first, then neighbouring difficulties when
-    workout.difficulty_spillover allows it.
+    workout.difficulty_spillover allows it. A tier is only *accepted* when the
+    plan it produces actually fills the time — the old version returned the
+    first tier that produced anything at all, so 60 advanced minutes of
+    Strength & Power came back as the library's one advanced strength exercise
+    and ten real minutes. Now a tier that underfills is kept as a candidate and
+    the next one is tried; the fullest plan wins.
     """
     settings = settings or {}
     avoid = {str(name).lower() for name in (avoid or ())}
     variety = settings.get('workout.variety', 'balanced')
+    profile = focus_profile(focus)
+
+    try:
+        tolerance = float(settings.get('workout.duration_tolerance', 40)) / 100.0
+    except (TypeError, ValueError):
+        tolerance = 0.4
+    floor_minutes = float(duration or 0) * (1.0 - max(0.0, min(tolerance, 0.9)))
 
     wanted = str(difficulty or '').lower()
     exact = [ex for ex in pool if wanted and wanted in str(ex.get('difficulty', '')).lower()]
     tiers = [exact, pool] if settings.get('workout.difficulty_spillover', True) \
         else [exact or pool]
 
+    best = None
     for tier in tiers:
         if not tier:
             continue
@@ -1624,10 +1976,18 @@ def select_exercises_rule_based(pool, duration, difficulty, settings, avoid=(), 
         # a recent exercise still appears when a small library has nothing else.
         soften = () if variety == 'repeat_ok' else avoid
 
-        chosen = select_balanced(candidates, difficulty, soften, MAX_EXERCISES, seed)
+        chosen = select_balanced(candidates, difficulty, soften, MAX_EXERCISES, seed,
+                                 focus=profile, history=history)
         blocks = plan_sets(chosen, duration, difficulty, settings)
-        if blocks:
+        if not blocks:
+            continue
+        total = plan_total_minutes(blocks)
+        if total >= floor_minutes:
             return blocks
+        if best is None or total > plan_total_minutes(best):
+            best = blocks
+    if best:
+        return best
 
     if pool:
         return plan_sets([min(pool, key=_minutes)], duration, difficulty, settings,
@@ -1635,20 +1995,45 @@ def select_exercises_rule_based(pool, duration, difficulty, settings, avoid=(), 
     return []
 
 
-def build_bookend(pool, minutes, settings=None):
+def build_bookend(pool, minutes, settings=None, seed='', avoid=()):
     """Easy mobility work totalling roughly `minutes`, for a warm-up or cool-down.
 
     Drawn from the same library as everything else, so a warm-up respects the
     user's equipment and exclusion settings for free — `pool` arrives filtered.
-    One set each: a warm-up is a sequence, not a prescription.
+    One set each: a warm-up is a sequence, not a prescription. The seed is the
+    day's, so the warm-up rotates with the workout instead of being the same
+    four movements every morning.
     """
     if minutes <= 0 or not pool:
         return []
     mobility = [ex for ex in pool if ex.get('category') == MOBILITY_CATEGORY] or pool
     easy = [ex for ex in mobility
             if str(ex.get('difficulty', '')).lower() == 'beginner'] or mobility
-    chosen = select_balanced(easy, 'beginner', (), MAX_EXERCISES)
+    chosen = select_balanced(easy, 'beginner', avoid, MAX_EXERCISES, seed)
     return plan_sets(chosen, minutes, 'beginner', settings or {}, base_sets=1, max_sets=1)
+
+
+def recent_region_load(names, library):
+    """How much each body region the user trained lately, normalised to 0..1.
+
+    Names alone say what to avoid repeating; the regions behind them say what
+    is *tired*. Two heavy leg sessions this week should push the next one
+    towards the upper body even when none of the individual exercises repeat.
+    Weighted by recency: the most recent session's exercises count most.
+    """
+    if not names:
+        return {}
+    by_name = {str(ex.get('name', '')).lower(): ex for ex in (library or [])}
+    load = {}
+    for position, name in enumerate(names):
+        exercise = by_name.get(str(name).lower())
+        if not exercise:
+            continue
+        weight = 1.0 / (1.0 + position / 10.0)
+        for region in muscle_regions(exercise):
+            load[region] = load.get(region, 0.0) + weight
+    peak = max(load.values()) if load else 0.0
+    return {region: value / peak for region, value in load.items()} if peak else {}
 
 
 def recent_exercise_names(user_id, sessions=5):
@@ -1764,17 +2149,23 @@ def api_generate_workout():
             warmup_minutes = cooldown_minutes = 0
         main_duration = duration - warmup_minutes - cooldown_minutes
 
-        bookend_pool = (build_candidate_pool(['Speed & Mobility'], settings, library)
-                        if (warmup_minutes or cooldown_minutes) else [])
-        warmup = build_bookend(bookend_pool, warmup_minutes, settings)
-        cooldown = build_bookend(bookend_pool, cooldown_minutes, settings)
-
         avoid = (recent_exercise_names(session.get('user_id', 'guest'))
                  if settings.get('workout.variety', 'balanced') != 'repeat_ok' else ())
+        # What those recent names actually *worked*, so two leg days in a row
+        # push the selector towards the upper body even when no single exercise
+        # repeats. Names say what not to redo; regions say what is still tired.
+        history = recent_region_load(avoid, library)
         # Rotates the tie-break order once a day per user, so asking for the
         # same session tomorrow is not the same six exercises in the same
         # order — without making a single request non-deterministic.
         seed = f"{session.get('user_id', 'guest')}:{datetime.now().strftime('%Y-%m-%d')}"
+
+        bookend_pool = (build_candidate_pool(['Speed & Mobility'], settings, library)
+                        if (warmup_minutes or cooldown_minutes) else [])
+        warmup = build_bookend(bookend_pool, warmup_minutes, settings, seed=seed,
+                               avoid=avoid)
+        cooldown = build_bookend(bookend_pool, cooldown_minutes, settings,
+                                 seed=f'{seed}:cooldown', avoid=avoid)
 
         # The rule-based plan is built first even when the model is on: it is
         # the fallback, and it is also how many exercises the time actually
@@ -1782,14 +2173,16 @@ def api_generate_workout():
         # choose that many from a shortlist — a judgement call — instead of
         # doing the arithmetic the engine has already done.
         main_exercises = select_exercises_rule_based(
-            pool, main_duration, difficulty, settings, avoid=avoid, seed=seed)
+            pool, main_duration, difficulty, settings, avoid=avoid, seed=seed,
+            focus=focus, history=history)
         engine = 'rules'
 
         if (settings.get('ai.enabled', True) and settings.get('ai.workout_generation', False)
                 and main_exercises):
             # Full library records, so a model-chosen exercise keeps its
             # instructions and equipment just like a rule-chosen one.
-            candidates = shortlist_candidates(pool, difficulty, avoid, seed=seed)
+            candidates = shortlist_candidates(pool, difficulty, avoid, seed=seed,
+                                              focus=focus, history=history)
             llm_workout = generate_workout_via_llm(
                 domains, main_duration, difficulty, focus, candidates, goal, settings,
                 target_count=len(main_exercises), avoid=avoid)
@@ -1800,7 +2193,10 @@ def api_generate_workout():
         main_exercises = order_exercises(main_exercises,
                                          settings.get('workout.ordering', 'alternate'))
 
-        exercises = [_json_safe_exercise(ex) for ex in (warmup + main_exercises + cooldown)]
+        # Ordering and the bookend joins both move the wall clock a little, so
+        # the whole session is trimmed back to the length that was asked for.
+        planned = refit_plan(warmup + main_exercises + cooldown, duration)
+        exercises = [_json_safe_exercise(ex) for ex in planned]
         total_time = plan_total_minutes(exercises)
 
         wanted_categories = {DOMAIN_TO_CATEGORY.get(d) for d in domains}
@@ -1813,6 +2209,13 @@ def api_generate_workout():
             applied.append(f'{warmup_minutes} min warm-up')
         if cooldown:
             applied.append(f'{cooldown_minutes} min cool-down')
+        # Say so rather than quietly handing back a short session: with a small
+        # library, breadth (MAX_EXERCISES) and depth (MAX_SETS) can both run out
+        # before the clock does.
+        shortfall = round(duration - total_time)
+        if shortfall >= 2:
+            applied.append(f'{shortfall} min short of the {duration} requested — the '
+                           'exercises your settings allow ran out')
 
         return jsonify({
             'success': True,

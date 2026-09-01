@@ -1097,3 +1097,262 @@ def test_ai_workout_generation_is_off_by_default(client, monkeypatch):
 
     assert called == []
     assert data['success'] is True and data['engine'] == 'rules'
+
+
+# ── Reading an exercise: regions, patterns, focus ────────────────────
+
+
+def test_muscle_regions_group_labels_that_mean_the_same_thing():
+    f = app_module.muscle_regions
+    assert f({'target_muscles': 'Chest, shoulders, triceps'}) == {'push'}
+    assert f({'target_muscles': 'Chest, triceps'}) == {'push'}
+    assert f({'target_muscles': 'Quadriceps, glutes'}) == {'legs'}
+    # 'Full body' survives beside a non-anatomical label and yields to a real one
+    assert f({'target_muscles': 'Full body, cardio'}) == {'full body', 'cardio'}
+    assert f({'target_muscles': 'Full body, chest'}) == {'push'}
+    assert f({'target_muscles': ''}) == set()
+
+
+def test_movement_pattern_reads_the_name_before_the_muscles():
+    f = app_module.movement_pattern
+    assert f({'name': 'Diamond Push-ups', 'target_muscles': 'Chest, triceps'}) == 'push'
+    assert f({'name': 'Doorway Rows', 'target_muscles': 'Back, biceps'}) == 'pull'
+    assert f({'name': 'Chair Squats', 'target_muscles': 'Quadriceps'}) == 'squat'
+    assert f({'name': 'Side Plank', 'target_muscles': 'Core, shoulders'}) == 'core'
+    assert f({'name': 'Mental Math', 'target_muscles': 'Brain'}) == 'cognitive'
+    # No name match and no muscles: the category is the last resort
+    assert f({'name': 'Mystery Move', 'category': 'Agility'}) == 'agility'
+
+
+def test_focus_profile_accepts_the_client_vocabulary_and_free_text():
+    f = app_module.focus_profile
+    assert f('upper_body') is app_module.FOCUS_PROFILES['upper_body']
+    assert f('Upper Body') is app_module.FOCUS_PROFILES['upper_body']
+    assert f('legs') is app_module.FOCUS_PROFILES['lower_body']
+    assert f('') is None and f(None) is None
+    # Anything unrecognised still steers, as bare keywords with no region
+    regions, keywords = f('shoulder rehab')
+    assert regions == set() and 'shoulder' in keywords
+
+
+def test_selection_charges_more_for_the_second_repeat_than_the_first():
+    """The old set-based score made every extra chest exercise equally cheap."""
+    press = {'name': 'Push-ups', 'category': 'Strength & Power',
+             'difficulty': 'beginner', 'target_muscles': 'Chest, triceps'}
+    balance = app_module.new_balance()
+    scores = []
+    for _ in range(3):
+        scores.append(app_module.selection_penalty(press, 'beginner', (), balance))
+        app_module.add_to_balance(balance, press)
+    assert scores[0] < scores[1] < scores[2]
+
+
+def test_selection_avoids_stacking_one_movement_pattern():
+    """Three presses available, three slots — one of them should not be a press."""
+    pool = [
+        {'name': 'Push-ups', 'category': 'Strength & Power', 'duration': 0.5,
+         'difficulty': 'beginner', 'target_muscles': 'Chest, triceps'},
+        {'name': 'Diamond Push-ups', 'category': 'Strength & Power', 'duration': 0.5,
+         'difficulty': 'beginner', 'target_muscles': 'Chest, shoulders'},
+        {'name': 'Incline Push-ups', 'category': 'Strength & Power', 'duration': 0.5,
+         'difficulty': 'beginner', 'target_muscles': 'Chest, triceps'},
+        {'name': 'Doorway Rows', 'category': 'Strength & Power', 'duration': 0.5,
+         'difficulty': 'beginner', 'target_muscles': 'Back, biceps'},
+    ]
+    chosen = app_module.select_balanced(pool, 'beginner', (), 3)
+    assert 'Doorway Rows' in [ex['name'] for ex in chosen]
+
+
+def test_focus_pulls_the_selection_towards_what_was_asked_for():
+    pool = [
+        {'name': 'Push-ups', 'category': 'Strength & Power', 'duration': 0.5,
+         'difficulty': 'beginner', 'target_muscles': 'Chest, triceps'},
+        {'name': 'Doorway Rows', 'category': 'Strength & Power', 'duration': 0.5,
+         'difficulty': 'beginner', 'target_muscles': 'Back, biceps'},
+        {'name': 'Chair Squats', 'category': 'Strength & Power', 'duration': 0.5,
+         'difficulty': 'beginner', 'target_muscles': 'Quadriceps, glutes'},
+        {'name': 'Glute Bridge', 'category': 'Strength & Power', 'duration': 0.5,
+         'difficulty': 'beginner', 'target_muscles': 'Glutes, hamstrings'},
+    ]
+    upper = [ex['name'] for ex in
+             app_module.select_balanced(pool, 'beginner', (), 2, focus='upper_body')]
+    lower = [ex['name'] for ex in
+             app_module.select_balanced(pool, 'beginner', (), 2, focus='lower_body')]
+    assert set(upper) == {'Push-ups', 'Doorway Rows'}
+    assert set(lower) == {'Chair Squats', 'Glute Bridge'}
+    # No focus given: the balanced spread is unchanged
+    neutral = app_module.select_balanced(pool, 'beginner', (), 2)
+    assert len(neutral) == 2
+
+
+def test_focus_never_outranks_the_requested_difficulty():
+    pool = [
+        {'name': 'Easy Row', 'category': 'Strength & Power', 'duration': 0.5,
+         'difficulty': 'beginner', 'target_muscles': 'Back'},
+        {'name': 'Hard Squat', 'category': 'Strength & Power', 'duration': 0.5,
+         'difficulty': 'advanced', 'target_muscles': 'Quadriceps'},
+    ]
+    picked = app_module.select_balanced(pool, 'advanced', (), 1, focus='upper_body')
+    assert picked[0]['name'] == 'Hard Squat'
+
+
+def test_recent_region_load_reads_what_was_trained_not_just_what_was_named():
+    library = [
+        {'name': 'Chair Squats', 'target_muscles': 'Quadriceps, glutes'},
+        {'name': 'Push-ups', 'target_muscles': 'Chest, triceps'},
+    ]
+    load = app_module.recent_region_load(['Chair Squats', 'Chair Squats'], library)
+    assert load == {'legs': 1.0}
+    assert app_module.recent_region_load([], library) == {}
+    # Names the library has never heard of are ignored, not guessed at
+    assert app_module.recent_region_load(['Kettlebell Snatch'], library) == {}
+
+
+def test_history_pushes_the_next_session_off_a_tired_region():
+    pool = [
+        {'name': 'Chair Squats', 'category': 'Strength & Power', 'duration': 0.5,
+         'difficulty': 'beginner', 'target_muscles': 'Quadriceps, glutes'},
+        {'name': 'Doorway Rows', 'category': 'Strength & Power', 'duration': 0.5,
+         'difficulty': 'beginner', 'target_muscles': 'Back, biceps'},
+    ]
+    fresh = app_module.select_balanced(pool, 'beginner', (), 1)
+    tired = app_module.select_balanced(pool, 'beginner', (), 1,
+                                       history={'legs': 1.0})
+    assert fresh[0]['name'] == 'Chair Squats'
+    assert tired[0]['name'] == 'Doorway Rows'
+
+
+# ── Sequencing ───────────────────────────────────────────────────────
+
+SEQ_ITEMS = [
+    {'name': 'Push-ups', 'category': 'Strength & Power', 'target_muscles': 'Chest'},
+    {'name': 'Diamond Push-ups', 'category': 'Strength & Power',
+     'target_muscles': 'Chest'},
+    {'name': 'Incline Push-ups', 'category': 'Strength & Power',
+     'target_muscles': 'Chest'},
+    {'name': 'Chair Squats', 'category': 'Strength & Power',
+     'target_muscles': 'Quadriceps'},
+    {'name': 'Glute Bridge', 'category': 'Strength & Power',
+     'target_muscles': 'Glutes'},
+    {'name': 'Doorway Rows', 'category': 'Strength & Power', 'target_muscles': 'Back'},
+]
+
+
+def test_sequencing_splits_up_the_repeated_movement():
+    """Three presses in six blocks should not end up next to each other."""
+    ordered = app_module.sequence_for_recovery(SEQ_ITEMS)
+    patterns = [app_module.movement_pattern(ex) for ex in ordered]
+    assert not any(a == b for a, b in zip(patterns, patterns[1:]))
+    assert sorted(ex['name'] for ex in ordered) == \
+        sorted(ex['name'] for ex in SEQ_ITEMS)
+
+
+def test_sequencing_is_deterministic_and_never_worse_than_greedy():
+    first = [ex['name'] for ex in app_module.sequence_for_recovery(SEQ_ITEMS)]
+    assert first == [ex['name'] for ex in app_module.sequence_for_recovery(SEQ_ITEMS)]
+    assert app_module.sequence_cost(app_module.sequence_for_recovery(SEQ_ITEMS)) <= \
+        app_module.sequence_cost(SEQ_ITEMS)
+    # Too short to reorder: returned untouched
+    assert app_module.sequence_for_recovery(SEQ_ITEMS[:2]) == SEQ_ITEMS[:2]
+    assert app_module.sequence_for_recovery([]) == []
+
+
+def test_alternate_ordering_now_works_inside_a_single_category():
+    """The old round-robin returned a one-category workout completely unchanged."""
+    ordered = app_module.order_exercises(SEQ_ITEMS, 'alternate')
+    assert [ex['name'] for ex in ordered] != [ex['name'] for ex in SEQ_ITEMS]
+    assert sorted(ex['name'] for ex in ordered) == \
+        sorted(ex['name'] for ex in SEQ_ITEMS)
+
+
+# ── Filling the time asked for ───────────────────────────────────────
+
+
+def test_rule_based_spills_over_rather_than_returning_a_thin_workout():
+    """One advanced exercise in the library is not a sixty-minute session."""
+    pool = [{'name': 'Single-leg Squat', 'category': 'Strength & Power',
+             'duration': 1.0, 'difficulty': 'advanced',
+             'target_muscles': 'Quadriceps, glutes'}]
+    pool += [{'name': f'Move {i}', 'category': 'Strength & Power', 'duration': 0.7,
+              'difficulty': 'intermediate', 'target_muscles': m}
+             for i, m in enumerate(('Chest', 'Back', 'Core', 'Glutes', 'Calves'))]
+
+    blocks = app_module.select_exercises_rule_based(pool, 60, 'advanced', {})
+    assert len(blocks) > 1
+    assert app_module.plan_total_minutes(blocks) > 30
+    # The requested difficulty still leads
+    assert blocks[0]['name'] == 'Single-leg Squat'
+
+
+def test_rule_based_keeps_the_thin_plan_when_spillover_is_off():
+    pool = [{'name': 'Single-leg Squat', 'category': 'Strength & Power',
+             'duration': 1.0, 'difficulty': 'advanced',
+             'target_muscles': 'Quadriceps'}]
+    pool += [{'name': f'Move {i}', 'category': 'Strength & Power', 'duration': 0.7,
+              'difficulty': 'intermediate', 'target_muscles': 'Chest'}
+             for i in range(5)]
+    blocks = app_module.select_exercises_rule_based(
+        pool, 60, 'advanced', {'workout.difficulty_spillover': False})
+    assert [b['name'] for b in blocks] == ['Single-leg Squat']
+
+
+def test_generated_workout_says_when_it_could_not_fill_the_time(client, monkeypatch):
+    """A short session is reported, not quietly handed over."""
+    monkeypatch.setattr(app_module, 'generate_workout_via_llm', lambda *a, **k: None)
+    data = client.post('/api/generate-workout', json={
+        'domains': ['Strength'], 'duration': 200, 'difficulty': 'beginner'
+    }).get_json()
+    assert data['total_duration'] < 200
+    assert any('short of the 200 requested' in note for note in data['applied_settings'])
+
+
+def test_generated_workout_honours_focus_without_the_model(client, monkeypatch):
+    """Focus used to reach the model only — with AI off it was silently dropped."""
+    monkeypatch.setattr(app_module, 'generate_workout_via_llm', lambda *a, **k: None)
+
+    def names(focus):
+        data = client.post('/api/generate-workout', json={
+            'domains': ['Strength'], 'duration': 20, 'difficulty': 'beginner',
+            'focus': focus}).get_json()
+        assert data['engine'] == 'rules'
+        return [app_module.muscle_regions(e) for e in data['exercises']]
+
+    upper = sum(1 for r in names('upper_body') if 'push' in r or 'pull' in r)
+    lower = sum(1 for r in names('lower_body') if 'legs' in r)
+    assert upper >= 3 and lower >= 3
+
+
+def test_refit_plan_gives_back_time_ordering_borrowed():
+    blocks = app_module.plan_sets(PLAN_POOL, 10, 'beginner', {})
+    # What reordering does: a block with a longer rest lands after the first
+    # one, so the join between exercises now costs more than it was budgeted at
+    blocks[1] = dict(blocks[1], rest_seconds=120)
+    stretched = app_module.plan_total_minutes(blocks)
+    trimmed = app_module.refit_plan(blocks, 10)
+    assert stretched > 10 >= app_module.plan_total_minutes(trimmed)
+    # Depth comes off before an exercise does
+    assert len(trimmed) == len(blocks)
+    assert sum(b['sets'] for b in trimmed) < sum(b['sets'] for b in blocks)
+
+
+def test_refit_plan_leaves_a_fitting_plan_and_an_untimed_one_alone():
+    blocks = app_module.plan_sets(PLAN_POOL, 10, 'beginner', {})
+    assert app_module.refit_plan(blocks, 10) == blocks
+    assert app_module.refit_plan(blocks, 0) == blocks
+    assert app_module.refit_plan([], 10) == []
+    # An older saved workout carries no set figures — nothing to trim by
+    legacy = [{'name': 'Push-ups', 'duration': 30.0}]
+    assert app_module.refit_plan(legacy, 5) == legacy
+
+
+def test_generated_workout_fits_the_time_with_bookends_on(client, monkeypatch):
+    """Warm-up, main work and cool-down together, joins included."""
+    monkeypatch.setattr(app_module, 'generate_workout_via_llm', lambda *a, **k: None)
+    client.patch('/api/settings', json={'changes': {
+        'workout.include_warmup': True, 'workout.include_cooldown': True}},
+        headers={'X-CSRF-Token': CSRF})
+    for minutes in (12, 20, 35, 45):
+        data = client.post('/api/generate-workout', json={
+            'domains': ['Strength', 'Endurance'], 'duration': minutes,
+            'difficulty': 'intermediate'}).get_json()
+        assert data['total_duration'] <= minutes, (minutes, data['total_duration'])
