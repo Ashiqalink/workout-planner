@@ -240,7 +240,7 @@
         if (workout.engine === 'ai') {
             badge.innerHTML = '<span class="engine-badge engine-ai">built by your local model</span>';
         } else if (FT.get('ai.fallback_notice', true) &&
-                   FT.get('ai.enabled', true) && FT.get('ai.workout_generation', true)) {
+                   FT.get('ai.enabled', true) && FT.get('ai.workout_generation', false)) {
             badge.innerHTML = '<span class="engine-badge engine-rules">built by the rule engine (model unavailable)</span>';
         } else {
             badge.innerHTML = '<span class="engine-badge engine-rules">built by the rule engine</span>';

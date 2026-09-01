@@ -428,35 +428,50 @@ def _fake_chat_completion(content: str) -> bytes:
     return json.dumps({'choices': [{'message': {'content': content}}]}).encode('utf-8')
 
 
+def _ai_workouts_on(monkeypatch):
+    """AI generation ships off (the rule engine benchmarked better), so the
+    tests that exercise the model path have to switch it on first."""
+    original = app_module.get_settings
+    monkeypatch.setattr(app_module, 'get_settings',
+                        lambda: dict(original(), **{'ai.workout_generation': True}))
+
+
 def test_generate_workout_llm_success(client, monkeypatch):
     """LLM returns markdown-fenced JSON → endpoint strips fences, recomputes totals."""
     monkeypatch.setattr(app_module, 'get_loaded_model', lambda: 'test-model')
+    _ai_workouts_on(monkeypatch)
     body = _fake_chat_completion('```json\n' + json.dumps(LLM_WORKOUT) + '\n```')
     monkeypatch.setattr(app_module.urllib.request, 'urlopen',
                         lambda req, data=None, timeout=None: FakeHTTPResponse(body))
 
     resp = client.post('/api/generate-workout', json={
-        'domains': ['Strength'], 'duration': 12, 'difficulty': 'beginner',
+        'domains': ['Strength'], 'duration': 6, 'difficulty': 'beginner',
         'goal': 'stronger core'
     })
     assert resp.status_code == 200
     data = resp.get_json()
     assert data['success'] is True
-    assert [e['name'] for e in data['exercises']] == ['Push-ups', 'Plank']
-    assert data['total_duration'] == 12.0  # recomputed from 5 + 7, not the LLM's 999
+    assert data['engine'] == 'ai'
+    assert sorted(e['name'] for e in data['exercises']) == ['Plank', 'Push-ups']
+    # The model chose the two names; every number here is the engine's. Its
+    # 5- and 7-minute "sets" are discarded in favour of the library's 30 s,
+    # and the total is the wall clock including rest, inside the 6 asked for.
+    assert all(e['set_seconds'] == 30 and e['sets'] >= 2 for e in data['exercises'])
+    assert 0 < data['total_duration'] <= 6
     # The explanation is built from the resolved workout, never taken from the
     # model — see learn/07-truth-boundary.md.
     assert FABRICATED_CLAIM not in json.dumps(data)
-    assert data['explanation'] == (
-        'A 12-minute beginner session across 2 exercises: 2 Strength & Power. '
-        'Longest block: Plank, 7 min.'
-    )
+    assert data['explanation'].startswith(
+        f"A {data['total_duration']:g}-minute beginner session across 2 exercises: "
+        '2 Strength & Power.')
+    assert 'sets in total' in data['explanation']
     assert data['workout_id'].startswith('workout_')
 
 
 def test_generate_workout_llm_garbage_falls_back(client, monkeypatch):
     """Unparseable LLM output must fall back to the rule-based generator."""
     monkeypatch.setattr(app_module, 'get_loaded_model', lambda: 'test-model')
+    _ai_workouts_on(monkeypatch)
     body = _fake_chat_completion('sorry, I cannot produce JSON today')
     monkeypatch.setattr(app_module.urllib.request, 'urlopen',
                         lambda req, data=None, timeout=None: FakeHTTPResponse(body))
@@ -522,9 +537,15 @@ def test_validate_llm_selection():
     assert ex is None and '30' in err
 
 
-def test_generate_workout_llm_durations_clamped(client, monkeypatch):
-    """Absurd per-exercise durations from a small model get clamped to 0.5–15."""
+def test_generate_workout_llm_durations_are_ignored(client, monkeypatch):
+    """The model does not get to decide how long a set is; the library does.
+
+    A small model asked for "minutes of one set" answers 0.2 or 100 often
+    enough. Both are discarded: set length is the library's number, and the
+    planned session still fits the time the user asked for.
+    """
     monkeypatch.setattr(app_module, 'get_loaded_model', lambda: 'test-model')
+    _ai_workouts_on(monkeypatch)
     body = _fake_chat_completion(json.dumps({
         'exercises': [{'name': 'Push-ups', 'duration': 0.2},
                       {'name': 'Plank', 'duration': 100}],
@@ -534,19 +555,18 @@ def test_generate_workout_llm_durations_clamped(client, monkeypatch):
                         lambda req, data=None, timeout=None: FakeHTTPResponse(body))
 
     resp = client.post('/api/generate-workout', json={
-        'domains': ['Strength'], 'duration': 15, 'difficulty': 'beginner'
+        'domains': ['Strength'], 'duration': 6, 'difficulty': 'beginner'
     })
     data = resp.get_json()
     assert data['success'] is True
-    durations = {e['name']: e['duration'] for e in data['exercises']}
-    assert durations['Push-ups'] == 0.5
-    assert durations['Plank'] == 15.0
-    assert data['total_duration'] == 15.5
+    assert {e['set_seconds'] for e in data['exercises']} == {30}
+    assert 0 < data['total_duration'] <= 6
 
 
 def test_generate_workout_llm_hallucinated_names_fall_back(client, monkeypatch):
     """Valid JSON with made-up exercises must be rejected → rule-based fallback."""
     monkeypatch.setattr(app_module, 'get_loaded_model', lambda: 'test-model')
+    _ai_workouts_on(monkeypatch)
     calls = []
     body = _fake_chat_completion(json.dumps({
         'exercises': [{'name': 'Bench Press', 'duration': 10}],
@@ -565,13 +585,14 @@ def test_generate_workout_llm_hallucinated_names_fall_back(client, monkeypatch):
     assert data['success'] is True
     assert len(calls) == 2  # initial attempt + one corrective retry
     assert FABRICATED_CLAIM not in json.dumps(data)
-    assert data['explanation'].endswith(' min.')  # engine-built, rule-based path
+    assert 'sets in total' in data['explanation']  # engine-built, rule-based path
     assert all(e['category'] == 'Strength & Power' for e in data['exercises'])
 
 
 def test_generate_workout_llm_off_target_total_falls_back(client, monkeypatch):
     """A total far from the requested duration is a semantic failure → fallback."""
     monkeypatch.setattr(app_module, 'get_loaded_model', lambda: 'test-model')
+    _ai_workouts_on(monkeypatch)
     body = _fake_chat_completion(json.dumps({
         'exercises': [{'name': 'Push-ups', 'duration': 14},
                       {'name': 'Plank', 'duration': 14}],
@@ -586,12 +607,13 @@ def test_generate_workout_llm_off_target_total_falls_back(client, monkeypatch):
     data = resp.get_json()
     assert data['success'] is True
     assert FABRICATED_CLAIM not in json.dumps(data)
-    assert data['explanation'].endswith(' min.')  # engine-built, rule-based path
+    assert 'sets in total' in data['explanation']  # engine-built, rule-based path
 
 
 def test_generate_workout_llm_retry_recovers(client, monkeypatch):
     """First response is garbage; the corrective retry succeeds and is served."""
     monkeypatch.setattr(app_module, 'get_loaded_model', lambda: 'test-model')
+    _ai_workouts_on(monkeypatch)
     responses = [
         _fake_chat_completion('not json at all'),
         _fake_chat_completion(json.dumps({
@@ -608,13 +630,14 @@ def test_generate_workout_llm_retry_recovers(client, monkeypatch):
 
     monkeypatch.setattr(app_module.urllib.request, 'urlopen', fake_urlopen)
     resp = client.post('/api/generate-workout', json={
-        'domains': ['Strength'], 'duration': 12, 'difficulty': 'beginner'
+        'domains': ['Strength'], 'duration': 6, 'difficulty': 'beginner'
     })
     data = resp.get_json()
     assert data['success'] is True
+    assert data['engine'] == 'ai'
     assert FABRICATED_CLAIM not in json.dumps(data)
-    assert data['explanation'].endswith('Longest block: Push-ups, 6 min.')
-    assert data['total_duration'] == 12.0
+    assert sorted(e['name'] for e in data['exercises']) == ['Plank', 'Push-ups']
+    assert 0 < data['total_duration'] <= 6
     # The retry conversation must include the rejected reply and the error
     retry_messages = sent_payloads[1]['messages']
     assert retry_messages[-2]['role'] == 'assistant'
@@ -624,6 +647,7 @@ def test_generate_workout_llm_retry_recovers(client, monkeypatch):
 def test_llm_request_enforces_schema(client, monkeypatch):
     """Every LM Studio call must ship structured-output enforcement."""
     monkeypatch.setattr(app_module, 'get_loaded_model', lambda: 'test-model')
+    _ai_workouts_on(monkeypatch)
     sent_payloads = []
     body = _fake_chat_completion(json.dumps({
         'exercises': [{'name': 'Push-ups', 'duration': 12}],
@@ -642,8 +666,12 @@ def test_llm_request_enforces_schema(client, monkeypatch):
     assert payload['response_format']['type'] == 'json_schema'
     assert payload['response_format']['json_schema']['name'] == 'workout_selection'
     assert payload['temperature'] == 0
-    # Candidates are sent as compact one-line entries, not a JSON dump
-    assert '- Push-ups (Strength & Power' in payload['messages'][1]['content']
+    # Candidates are sent as a short grouped list, not a JSON dump of the pool
+    prompt = payload['messages'][1]['content']
+    assert 'Strength & Power:' in prompt
+    assert '. Push-ups ' in prompt
+    assert prompt.count('. ') <= app_module.MODEL_SHORTLIST + 8
+    assert 'Choose exactly' in prompt
 
 
 # ── Truth boundary ───────────────────────────────────────────────────
@@ -664,6 +692,7 @@ def test_schema_gives_the_model_no_prose_field():
 
 def test_prompt_does_not_request_prose(client, monkeypatch):
     monkeypatch.setattr(app_module, 'get_loaded_model', lambda: 'test-model')
+    _ai_workouts_on(monkeypatch)
     sent = []
     body = _fake_chat_completion(json.dumps({
         'exercises': [{'name': 'Push-ups', 'duration': 12}]}))
@@ -676,7 +705,7 @@ def test_prompt_does_not_request_prose(client, monkeypatch):
     client.post('/api/generate-workout', json={
         'domains': ['Strength'], 'duration': 12, 'difficulty': 'beginner'})
     system = sent[0]['messages'][0]['content']
-    assert 'Do not write any prose' in system
+    assert 'No prose, no explanation, no extra fields' in system
     assert '"explanation"' not in json.dumps(sent[0]['messages'])
 
 
@@ -922,3 +951,149 @@ def test_logout_redirects_and_clears_session(logged_in_client):
     assert resp.status_code == 302
     with logged_in_client.session_transaction() as s:
         assert 'user_id' not in s
+
+
+# ── Sets, rest and the planner ───────────────────────────────────────
+# The library stores one set of an exercise; the planner turns that into a
+# prescription. These tests pin the arithmetic the user is promised.
+
+PLAN_POOL = [
+    {'name': 'Push-ups', 'category': 'Strength & Power', 'duration': 0.5,
+     'difficulty': 'beginner', 'target_muscles': 'Chest, triceps'},
+    {'name': 'Squats', 'category': 'Strength & Power', 'duration': 0.5,
+     'difficulty': 'beginner', 'target_muscles': 'Quadriceps, glutes'},
+    {'name': 'Plank', 'category': 'Strength & Power', 'duration': 0.5,
+     'difficulty': 'beginner', 'target_muscles': 'Core'},
+]
+
+
+def test_plan_sets_prescribes_sets_and_fits_the_budget():
+    blocks = app_module.plan_sets(PLAN_POOL, 10, 'beginner', {})
+    assert blocks and all(b['sets'] >= 2 for b in blocks)
+    for b in blocks:
+        assert b['set_seconds'] == 30
+        assert b['rest_seconds'] == 45  # Strength & Power, beginner
+        assert b['duration'] == round(
+            (b['set_seconds'] * b['sets'] + b['rest_seconds'] * (b['sets'] - 1)) / 60.0, 2)
+    # The promised length includes the rest the session timer will run
+    assert app_module.plan_total_minutes(blocks) <= 10
+
+
+def test_plan_sets_never_promises_more_than_the_time_asked_for():
+    for minutes in (1, 3, 7, 12, 30):
+        blocks = app_module.plan_sets(PLAN_POOL, minutes, 'advanced', {})
+        assert app_module.plan_total_minutes(blocks) <= minutes
+
+
+def test_plan_sets_runs_long_library_entries_once():
+    """A four-minute cardio block is a block, not something to do three times."""
+    long_one = [{'name': 'Cardio Intervals', 'category': 'Endurance',
+                 'duration': 4.0, 'difficulty': 'intermediate', 'target_muscles': 'legs'}]
+    blocks = app_module.plan_sets(long_one, 20, 'intermediate', {})
+    assert blocks[0]['sets'] == 1
+    assert blocks[0]['set_seconds'] == 240
+
+
+def test_plan_sets_trades_sets_for_exercises_when_time_is_short():
+    """Ten advanced minutes is not four sets of one movement."""
+    pool = [dict(ex, difficulty='advanced', duration=1.0) for ex in PLAN_POOL]
+    blocks = app_module.plan_sets(pool, 10, 'advanced', {})
+    assert len(blocks) >= 2
+
+
+def test_rest_seconds_follow_the_user_settings():
+    f = app_module.rest_seconds_for
+    assert f('Strength & Power', 'beginner', {}) == 45
+    assert f('Strength & Power', 'advanced', {}) == 75
+    assert f('Strength & Power', 'beginner', {'timers.rest_source': 'none'}) == 0
+    assert f('Strength & Power', 'beginner',
+             {'timers.rest_source': 'fixed', 'timers.fixed_rest_seconds': 90}) == 90
+    assert f('Strength & Power', 'beginner', {'timers.rest_multiplier': 50}) == 23
+    assert f('No Such Category', 'beginner', {}) == app_module.DEFAULT_REST_SECONDS
+
+
+def test_selection_spreads_across_categories_and_muscles():
+    """Two domains asked for, two domains delivered, not eight chest exercises."""
+    pool = [
+        {'name': 'A', 'category': 'Strength & Power', 'duration': 0.5,
+         'difficulty': 'beginner', 'target_muscles': 'Chest'},
+        {'name': 'B', 'category': 'Strength & Power', 'duration': 0.5,
+         'difficulty': 'beginner', 'target_muscles': 'Chest'},
+        {'name': 'C', 'category': 'Strength & Power', 'duration': 0.5,
+         'difficulty': 'beginner', 'target_muscles': 'Chest'},
+        {'name': 'D', 'category': 'Endurance', 'duration': 0.5,
+         'difficulty': 'beginner', 'target_muscles': 'Legs'},
+    ]
+    chosen = app_module.select_balanced(pool, 'beginner', (), 2)
+    assert {ex['category'] for ex in chosen} == {'Strength & Power', 'Endurance'}
+
+
+def test_selection_prefers_the_requested_difficulty_then_neighbours():
+    pool = [
+        {'name': 'Hard', 'category': 'Agility', 'duration': 0.5, 'difficulty': 'advanced'},
+        {'name': 'Easy', 'category': 'Agility', 'duration': 0.5, 'difficulty': 'beginner'},
+        {'name': 'Middle', 'category': 'Agility', 'duration': 0.5, 'difficulty': 'intermediate'},
+    ]
+    assert app_module.select_balanced(pool, 'advanced', (), 1)[0]['name'] == 'Hard'
+    assert app_module.select_balanced(pool, 'beginner', (), 1)[0]['name'] == 'Easy'
+
+
+def test_selection_is_deterministic_per_seed_but_rotates_between_seeds():
+    """Same request today: same workout. Tomorrow: a different tie broken."""
+    pool = [{'name': f'Ex {i}', 'category': 'Agility', 'duration': 0.5,
+             'difficulty': 'beginner', 'target_muscles': 'Legs'} for i in range(12)]
+    first = [ex['name'] for ex in app_module.select_balanced(pool, 'beginner', (), 3, 'day-1')]
+    assert first == [ex['name'] for ex in
+                     app_module.select_balanced(pool, 'beginner', (), 3, 'day-1')]
+    assert first != [ex['name'] for ex in
+                     app_module.select_balanced(pool, 'beginner', (), 3, 'day-2')]
+
+
+def test_recent_exercises_are_pushed_down_not_dropped():
+    chosen = app_module.select_balanced(PLAN_POOL, 'beginner', ('push-ups',), 3)
+    assert chosen[-1]['name'] == 'Push-ups'     # last, but still available
+    assert len(chosen) == 3
+
+
+def test_validate_llm_selection_rejects_repeats_and_wrong_counts():
+    f = app_module.validate_llm_selection
+    repeated = {'exercises': [{'name': 'Push-ups', 'duration': 1},
+                              {'name': 'push-ups', 'duration': 1}]}
+    ex, err = f(repeated, VALIDATION_CANDIDATES, 5)
+    assert ex is None and 'twice' in err
+
+    picks = {'exercises': [{'name': 'Push-ups', 'duration': 1}]}
+    # One either side of the engine's count is accepted; further off is not
+    assert f(picks, VALIDATION_CANDIDATES, 5, expected_count=2)[1] is None
+    ex, err = f(picks, VALIDATION_CANDIDATES, 5, expected_count=6)
+    assert ex is None and 'exactly 6' in err
+
+
+def test_generated_workout_reports_the_time_the_session_will_take(client, monkeypatch):
+    """total_duration is wall clock: every set, and every rest between them."""
+    monkeypatch.setattr(app_module, 'generate_workout_via_llm', lambda *a, **k: None)
+    data = client.post('/api/generate-workout', json={
+        'domains': ['Strength'], 'duration': 15, 'difficulty': 'beginner'
+    }).get_json()
+
+    exercises = data['exercises']
+    assert all(e['sets'] >= 1 and e['set_seconds'] > 0 for e in exercises)
+    by_hand = sum(e['set_seconds'] * e['sets'] + e['rest_seconds'] * (e['sets'] - 1)
+                  for e in exercises)
+    by_hand += sum(e['rest_seconds'] for e in exercises[1:])
+    assert round(by_hand / 60.0, 1) == data['total_duration'] <= 15
+
+
+def test_ai_workout_generation_is_off_by_default(client, monkeypatch):
+    """The model is opt-in: an installed model is not reason enough to wait for it."""
+    called = []
+    monkeypatch.setattr(app_module, 'get_loaded_model', lambda: 'test-model')
+    monkeypatch.setattr(app_module, 'generate_workout_via_llm',
+                        lambda *a, **k: called.append(1))
+
+    data = client.post('/api/generate-workout', json={
+        'domains': ['Strength'], 'duration': 15, 'difficulty': 'beginner'
+    }).get_json()
+
+    assert called == []
+    assert data['success'] is True and data['engine'] == 'rules'

@@ -186,6 +186,8 @@
 <script>
     let currentWorkout = null;
     let currentIdx = 0;
+    let currentSet = 1;           // which set of the current exercise is running
+    let pendingAfterRest = null;  // what "skip rest" should jump to
     let sessionTimer = null, exerciseTimer = null, restTimer = null, prepTimer = null;
     let sessionStart = null;
     let isPaused = false;
@@ -340,11 +342,7 @@
         show('exercise-screen');
 
         document.getElementById('ex-name').textContent = ex.name;
-        document.getElementById('ex-meta').innerHTML = [
-            `<span class="badge badge-primary">${escapeHtml(ex.category)}</span>`,
-            `<span class="badge badge-neutral">${Math.round(ex.duration * 60)}s</span>`,
-            ex.difficulty ? `<span class="badge badge-${escapeHtml(ex.difficulty)}">${escapeHtml(ex.difficulty)}</span>` : ''
-        ].join(' ');
+        renderExerciseMeta(ex, 1);
 
         if (CFG.showInstructions && ex.instructions) {
             document.getElementById('ex-instructions').innerHTML =
@@ -369,10 +367,43 @@
         document.getElementById('progress-text').textContent = Math.round(pct) + '% Complete';
 
         announce(ex.name);
+        currentSet = 1;
+        startCurrentSet();
+    }
 
-        // The get-ready countdown runs before the exercise clock starts, so
+    // ─── Sets ─────────────────────────────────────────────────
+    //
+    // The planner prescribes sets, not one long block: an exercise is
+    // `sets` × `set_seconds` with `rest_seconds` between them. Workouts saved
+    // before that existed have neither field, so both default to one set of
+    // the whole duration and those sessions run exactly as they used to.
+
+    function setsOf(ex) { return Math.max(1, parseInt(ex.sets, 10) || 1); }
+
+    function setSecondsOf(ex) {
+        return Math.round(ex.set_seconds || (ex.duration * 60) / setsOf(ex));
+    }
+
+    function renderExerciseMeta(ex, setNumber) {
+        const sets = setsOf(ex);
+        document.getElementById('ex-meta').innerHTML = [
+            `<span class="badge badge-primary">${escapeHtml(ex.category)}</span>`,
+            sets > 1 ? `<span class="badge badge-neutral">set ${setNumber} of ${sets}</span>` : '',
+            `<span class="badge badge-neutral">${setSecondsOf(ex)}s</span>`,
+            ex.difficulty ? `<span class="badge badge-${escapeHtml(ex.difficulty)}">${escapeHtml(ex.difficulty)}</span>` : ''
+        ].join(' ');
+    }
+
+    function startCurrentSet() {
+        const ex = currentWorkout.exercises[currentIdx];
+        hide('rest-screen');
+        hide('advance-screen');
+        show('exercise-screen');
+        renderExerciseMeta(ex, currentSet);
+        if (currentSet > 1) announce('Set ' + currentSet);
+        // The get-ready countdown runs before the clock starts, so
         // "Plank, 60s" is sixty seconds of plank, not fifty-five.
-        runPrepCountdown(ex, () => startExerciseTimer(ex.duration * 60));
+        runPrepCountdown(ex, () => startExerciseTimer(setSecondsOf(ex)));
     }
 
     function runPrepCountdown(ex, done) {
@@ -438,6 +469,14 @@
     }
 
     function onExerciseDone() {
+        const running = currentWorkout.exercises[currentIdx];
+        if (currentSet < setsOf(running)) {
+            currentSet++;
+            startRestTimer(running, () => startCurrentSet(),
+                           'Set ' + currentSet + ' of ' + setsOf(running) + ': ' + running.name);
+            return;
+        }
+
         collectSetLogs();
         const ex = currentWorkout.exercises[currentIdx];
         const dk = domainKey(ex.category);
@@ -476,6 +515,9 @@
     function restSecondsFor(ex) {
         if (CFG.restSource === 'none') return 0;
         if (CFG.restSource === 'fixed') return Math.max(0, CFG.fixedRest);
+        // The planner already budgeted this exercise's rest from the same
+        // table; using its number keeps the session as long as it promised.
+        if (ex && ex.rest_seconds) return Math.max(0, Math.round(ex.rest_seconds));
 
         const catMap = {
             'Strength': 'Strength & Power', 'Strength & Power': 'Strength & Power',
@@ -489,17 +531,23 @@
         return Math.round(sec * CFG.restMultiplier);
     }
 
-    function startRestTimer() {
-        const ex = currentWorkout.exercises[currentIdx];
-        const nextEx = currentWorkout.exercises[currentIdx + 1];
+    // Rest is used twice: between the sets of one exercise, and between
+    // exercises. Both run this timer; `after` says what happens when it ends.
+    function startRestTimer(ex, after, nextLabel) {
+        ex = ex || currentWorkout.exercises[currentIdx];
+        after = after || (() => startExercise(currentIdx + 1));
+        if (nextLabel === undefined) {
+            const nextEx = currentWorkout.exercises[currentIdx + 1];
+            nextLabel = nextEx ? 'Next: ' + nextEx.name : 'Last exercise done!';
+        }
         const restSec = restSecondsFor(ex);
 
-        if (restSec <= 0) { startExercise(currentIdx + 1); return; }
+        if (restSec <= 0) { after(); return; }
 
         hide('exercise-screen');
         show('rest-screen');
         document.getElementById('next-exercise-label').textContent =
-            CFG.showNextUp ? (nextEx ? 'Next: ' + nextEx.name : 'Last exercise done!') : '';
+            CFG.showNextUp ? nextLabel : '';
 
         if (restTimer) clearInterval(restTimer);
         let left = restSec;
@@ -513,13 +561,16 @@
             updateRing('rest-ring-fill', left, full);
             document.getElementById('rest-timer').textContent = fmtTime(left);
             if (left > 0 && left <= CFG.warningSeconds) Cues.tick();
-            if (left <= 0) { clearInterval(restTimer); Cues.transition(); startExercise(currentIdx + 1); }
+            if (left <= 0) { clearInterval(restTimer); Cues.transition(); after(); }
         }, 1000);
+        pendingAfterRest = after;
     }
 
     function skipRest() {
         if (restTimer) clearInterval(restTimer);
-        startExercise(currentIdx + 1);
+        const after = pendingAfterRest || (() => startExercise(currentIdx + 1));
+        pendingAfterRest = null;
+        after();
     }
 
     function skipCurrentExercise() {
@@ -547,7 +598,7 @@
 
         const rows = document.getElementById('set-rows');
         rows.innerHTML = '';
-        const count = withSets ? CFG.defaultSets : 1;
+        const count = withSets ? (setsOf(ex) > 1 ? setsOf(ex) : CFG.defaultSets) : 1;
         for (let i = 0; i < count; i++) addSetRow(withWeight);
 
         const addBtn = document.getElementById('set-add');

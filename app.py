@@ -5,6 +5,7 @@ import sqlite3
 import csv
 import io
 import json
+import hashlib
 import logging
 import os
 import re
@@ -563,7 +564,7 @@ def parse_prescription(text):
             items.append((m.group(1).strip(), int(m.group(2))))
     return items
 
-def resolve_prescribed_exercises(prescription):
+def resolve_prescribed_exercises(prescription, settings=None):
     """Match (name, minutes) prescriptions against the exercise library.
 
     Prescribed minutes override the library's default duration. Unknown names
@@ -585,6 +586,14 @@ def resolve_prescribed_exercises(prescription):
                 'description': '', 'target_muscles': '', 'difficulty': 'beginner',
                 'instructions': ''
             }
+        # The program prescribes one continuous block, so it is one set of the
+        # prescribed length. Stated explicitly because the session timer now
+        # runs sets, and a missing count would silently mean one anyway.
+        ex['sets'] = 1
+        ex['set_seconds'] = int(round(float(minutes) * 60))
+        ex['rest_seconds'] = rest_seconds_for(ex.get('category'), ex.get('difficulty'),
+                                              settings or {})
+        ex['work_seconds'] = ex['set_seconds']
         resolved.append(ex)
     return resolved
 
@@ -880,7 +889,7 @@ def build_workout_explanation(exercises, difficulty, focus=''):
         except (TypeError, ValueError):
             return 0.0
 
-    total = round(sum(minutes(ex) for ex in exercises), 1)
+    total = plan_total_minutes(exercises)
 
     counts = {}
     for ex in exercises:
@@ -900,12 +909,20 @@ def build_workout_explanation(exercises, difficulty, focus=''):
         f"{count} exercise{'' if count == 1 else 's'}: {breakdown}. "
         f"Longest block: {longest.get('name', 'unnamed')}, {minutes(longest):g} min."
     )
+    # Sets and rest are engine numbers too, so the sentence may quote them.
+    sets = sum(int(ex.get('sets') or 0) for ex in exercises)
+    if sets:
+        seconds = int(longest.get('set_seconds') or 0)
+        sentence = sentence[:-1] + (
+            f" — {int(longest.get('sets') or 1)} × {seconds}s." if seconds else '.')
+        sentence += f" {sets} sets in total."
     if focus:
         sentence += f" Focus: {focus}."
     return sentence
 
 def validate_llm_selection(selection, candidates, duration,
-                           min_minutes=None, max_minutes=None, tolerance=None):
+                           min_minutes=None, max_minutes=None, tolerance=None,
+                           expected_count=None):
     """Join the LLM's (name, duration) picks back against the candidate list.
 
     Returns (exercises, error). On success, exercises are full candidate dicts
@@ -915,6 +932,13 @@ def validate_llm_selection(selection, candidates, duration,
     The three bounds default to the module constants and are overridden per
     user from the workout.* settings, so someone who wants 30-minute blocks or
     a tighter length tolerance changes the validator, not just the prompt.
+
+    `expected_count` is the engine's own answer for how many exercises fit the
+    time. When it is given the model is being asked to *choose* rather than to
+    do arithmetic, so the count is checked instead of the duration total —
+    the planner assigns sets and rest afterwards either way. Repeats are
+    rejected in both modes: naming one exercise six times is the commonest
+    failure of a small model handed a long list.
     """
     min_minutes = MIN_EXERCISE_MINUTES if min_minutes is None else min_minutes
     max_minutes = MAX_EXERCISE_MINUTES if max_minutes is None else max_minutes
@@ -924,7 +948,7 @@ def validate_llm_selection(selection, candidates, duration,
     if not isinstance(picks, list) or not picks:
         return None, 'No exercises were selected.'
 
-    resolved = []
+    resolved, seen = [], set()
     for item in picks:
         if not isinstance(item, dict):
             return None, 'Each exercise must be an object with "name" and "duration".'
@@ -933,6 +957,9 @@ def validate_llm_selection(selection, candidates, duration,
         ex = by_name.get(key)
         if not ex:
             return None, f'"{name}" is not in the candidate list.'
+        if key in seen:
+            return None, f'"{ex["name"]}" appears twice; every exercise must be different.'
+        seen.add(key)
         try:
             minutes = float(item.get('duration', 0))
         except (TypeError, ValueError):
@@ -943,6 +970,14 @@ def validate_llm_selection(selection, candidates, duration,
         ex = dict(ex)
         ex['duration'] = minutes
         resolved.append(ex)
+
+    if expected_count is not None:
+        # One either side is accepted: the planner re-times whatever arrives,
+        # and a retry costs a small model more than the difference is worth.
+        if abs(len(resolved) - expected_count) > 1:
+            return None, (f'You chose {len(resolved)} exercises; choose exactly '
+                          f'{expected_count}.')
+        return resolved, None
 
     total = sum(e['duration'] for e in resolved)
     if abs(total - duration) > duration * tolerance:
@@ -990,14 +1025,36 @@ def _strip_code_fence(content):
         content = re.sub(r'\s*```$', '', content).strip()
     return content
 
-def generate_workout_via_llm(domains, duration, difficulty, focus, candidates,
-                             goal=None, settings=None):
-    """Ask the local LLM to pick exercises from the candidate list.
+MODEL_SHORTLIST = 24        # candidates shown to the model, at most
 
-    The model's job is deliberately small — choose names and minutes — so that
-    models under ~6B parameters stay reliable. Responses are validated against
-    the candidate list; a rejected response gets one corrective retry with the
-    validation error, then we give up and let the rule-based generator run.
+
+def shortlist_candidates(pool, difficulty, avoid=(), limit=MODEL_SHORTLIST, seed=''):
+    """The slice of the pool the model is allowed to choose from.
+
+    A 163-exercise list is not a prompt a 0.5–4B model reads carefully; it
+    copies from the top of it. So the engine pre-selects a balanced, on-
+    difficulty, non-repeating shortlist with the same scoring the rule-based
+    path uses, and the model reorders and picks within it. The floor on quality
+    is therefore the engine's own shortlist, and the prompt stays short — which
+    at this model size is a correctness feature, not a cost optimisation.
+    """
+    return select_balanced(pool, difficulty, avoid, limit, seed)
+
+
+def generate_workout_via_llm(domains, duration, difficulty, focus, candidates,
+                             goal=None, settings=None, target_count=None,
+                             avoid=()):
+    """Ask the local LLM to choose exercises from the candidate shortlist.
+
+    The model's job is deliberately small, and smaller than it used to be: it
+    chooses `target_count` names, and the engine assigns sets, rest and total
+    time afterwards. Asking a small model to make per-exercise minutes add up
+    to a target was arithmetic it routinely failed, and the retry it triggered
+    cost more than the selection was worth.
+
+    Responses are validated against the candidate list; a rejected response
+    gets one corrective retry quoting the exact error, then we give up and let
+    the rule-based generator run.
     """
     if not candidates:
         return None
@@ -1009,34 +1066,62 @@ def generate_workout_via_llm(domains, duration, difficulty, focus, candidates,
         'max_minutes': settings.get('workout.max_exercise_minutes', MAX_EXERCISE_MINUTES),
         'tolerance': float(settings.get('workout.duration_tolerance', 40)) / 100.0
                      if settings else TOTAL_DURATION_TOLERANCE,
+        'expected_count': target_count,
     }
 
-    # Compact one-line candidates: small models degrade badly on long prompts.
-    candidate_lines = '\n'.join(
-        f"- {c['name']} ({c['category']}, {c.get('difficulty', 'beginner')}, "
-        f"default {c.get('duration', MIN_EXERCISE_MINUTES)}min)"
-        for c in candidates
-    )
+    # Grouped, numbered, one line each. Grouping is what lets the model satisfy
+    # "cover every domain" by reading rather than reasoning; the numbers give
+    # the retry message something to point at.
+    grouped, order = {}, []
+    for c in candidates:
+        category = c.get('category') or 'General'
+        if category not in grouped:
+            grouped[category] = []
+            order.append(category)
+        grouped[category].append(c)
+    lines, index = [], 1
+    for category in order:
+        lines.append(f"{category}:")
+        for c in grouped[category]:
+            muscles = str(c.get('target_muscles') or '').strip()
+            lines.append(f"  {index}. {c['name']} — {c.get('difficulty', 'beginner')}"
+                         + (f", works {muscles}" if muscles else ""))
+            index += 1
+    candidate_lines = '\n'.join(lines)
+
+    count_rule = (f'Choose exactly {target_count} different exercises.'
+                  if target_count else 'Choose 4 to 8 different exercises.')
 
     system_content = (
-        'You are a fitness coach assistant. Build a workout by choosing exercises '
-        'from the candidate list. Respond ONLY with a JSON object of the form '
-        '{"exercises": [{"name": "<candidate name>", "duration": <minutes>}]}. '
-        'Use only names that appear in the candidate list, copied exactly as '
-        'written. Do not write any prose, explanation, or extra fields.'
+        'You are a strength coach picking exercises for one training session. '
+        'Follow these rules exactly:\n'
+        '1. Answer with JSON only: {"exercises": [{"name": "...", "duration": <minutes>}]}\n'
+        '2. Every name must be copied character for character from the candidate list.\n'
+        '3. Never repeat an exercise.\n'
+        '4. "duration" is the length of ONE set of that exercise in minutes '
+        '(0.5 is normal). The app decides how many sets to run, so do not try '
+        'to make the durations add up to the session length.\n'
+        '5. No prose, no explanation, no extra fields, no exercises of your own.'
     )
-    user_content = f"""Build a workout from these candidates.
-Target duration: {duration} minutes — the durations you assign must sum close to this.
-Difficulty: {difficulty}
-Focus area: {focus if focus else 'None'}
-Selected domains: {', '.join(domains)}
-Custom goal: {goal if goal else 'None'}
+
+    priorities = [f'Difficulty: {difficulty}']
+    if focus:
+        priorities.append(f'Emphasise: {focus}')
+    if goal:
+        priorities.append(f"The athlete's goal: {goal}")
+    if domains:
+        priorities.append('Cover these areas: ' + ', '.join(domains))
+
+    user_content = f"""Session brief
+{chr(10).join(priorities)}
+{count_rule}
+Prefer exercises that train different muscles from each other.
 
 Candidates:
 {candidate_lines}
 
-Example response:
-{{"exercises": [{{"name": "Push-ups", "duration": 3}}, {{"name": "Plank", "duration": 2}}]}}"""
+Answer with JSON in exactly this shape (this example is only the format, not the answer):
+{{"exercises": [{{"name": "Push-ups", "duration": 0.5}}, {{"name": "Plank", "duration": 0.5}}]}}"""
 
     messages = [
         {"role": "system", "content": system_content},
@@ -1058,17 +1143,28 @@ Example response:
         if selection is not None:
             exercises, error = validate_llm_selection(selection, candidates, duration, **bounds)
             if exercises:
-                total = round(sum(e['duration'] for e in exercises), 1)
+                # The model chose; the engine times. Set length comes from the
+                # library record, not from the model's number — a small model
+                # asked for "minutes of one set" will happily answer 12, and
+                # there is no reason to let it redefine what a push-up is.
+                by_name = {c['name'].lower(): c for c in candidates}
+                picks = [dict(ex, duration=by_name.get(str(ex.get('name', '')).lower(), ex)
+                              .get('duration', ex.get('duration')))
+                         for ex in exercises]
+                blocks = plan_sets(picks, duration, difficulty, settings)
+                if not blocks:
+                    return None
+                total = plan_total_minutes(blocks)
                 logger.info("LLM generated workout: %d exercises, %.1f min",
-                            len(exercises), total)
+                            len(blocks), total)
                 # Only the model's selection is used. Any other key it managed to
                 # emit — including prose, if a server ignored response_format —
                 # is dropped here rather than reaching the user.
                 return {
                     'success': True,
-                    'exercises': exercises,
+                    'exercises': blocks,
                     'total_duration': total,
-                    'explanation': build_workout_explanation(exercises, difficulty, focus)
+                    'explanation': build_workout_explanation(blocks, difficulty, focus)
                 }
 
         logger.warning("LLM workout response rejected (attempt %d): %s", attempt + 1, error)
@@ -1076,8 +1172,9 @@ Example response:
             messages = messages + [
                 {"role": "assistant", "content": content},
                 {"role": "user", "content":
-                    f'Your previous response was rejected: {error} '
-                    'Respond again with corrected JSON only, using only candidate names.'}
+                    f'That answer was rejected: {error} Answer again with JSON only. '
+                    'Copy names exactly from the candidate list, no repeats'
+                    + (f', exactly {target_count} exercises.' if target_count else '.')}
             ]
 
     return None
@@ -1239,23 +1336,279 @@ def order_exercises(exercises, mode):
     return items  # 'as_generated'
 
 
-def select_exercises_rule_based(pool, duration, difficulty, settings, avoid=()):
+# ── Sets, rest and honest wall-clock timing ──────────────────────────
+#
+# The library stores one *set* of each exercise, not a whole block: the median
+# `duration` in the matrix is 0.7 min (~42 s), which is how long one set of that
+# movement takes, not how long you should train it for. The old generator
+# treated it as the block and simply added blocks until the minutes ran out, so
+# "15 minutes" produced ~30 half-minute one-offs and, once the session timer
+# paid the rest table between them, took closer to 37 real minutes.
+#
+# The planner below prescribes sets instead: work time comes from the library,
+# set count from the difficulty, rest from the same table the session timer
+# uses. Everything is seconds internally, because reps are not knowable from
+# time-based data — a "set" here is a timed set of that exercise's natural
+# length, not a generic 30 s block.
+
+SETS_BY_DIFFICULTY = {'beginner': 2, 'intermediate': 3, 'advanced': 4}
+MAX_SETS = 5                # ceiling for the budget top-up pass
+MIN_SETS_TO_ADMIT = 2       # an exercise worth starting is worth two sets
+LONG_SET_SECONDS = 120      # above this the library entry is a block, not a set
+MAX_EXERCISES = 10          # beyond this a session stops being one workout
+MIN_EXERCISES = 3           # breadth the planner tries to reach before depth
+DEFAULT_REST_SECONDS = 30   # used when the rest table has no row
+SET_SECONDS_STEP = 5        # per-set work times are rounded to whole 5 s
+
+
+def rest_seconds_for(category, difficulty, settings):
+    """Rest after one set, in seconds.
+
+    Deliberately the same rule `restSecondsFor` runs in templates/session.html:
+    the planner may only spend time the session timer will actually charge, or
+    the promised length is fiction again.
+    """
+    settings = settings or {}
+    source = settings.get('timers.rest_source', 'auto')
+    if source == 'none':
+        return 0
+    try:
+        multiplier = float(settings.get('timers.rest_multiplier', 100) or 100) / 100.0
+    except (TypeError, ValueError):
+        multiplier = 1.0
+    if source == 'fixed':
+        try:
+            seconds = float(settings.get('timers.fixed_rest_seconds', DEFAULT_REST_SECONDS))
+        except (TypeError, ValueError):
+            seconds = DEFAULT_REST_SECONDS
+    else:
+        table = rest_times.get(category) or {}
+        key = str(difficulty or 'beginner').lower()
+        seconds = float(table.get(key) or table.get('beginner') or DEFAULT_REST_SECONDS)
+    # +0.5 rather than round(): JavaScript's Math.round is half-up and the
+    # session timer must charge exactly what the planner budgeted.
+    return max(0, int(seconds * multiplier + 0.5))
+
+
+def set_seconds_for(exercise, settings):
+    """Work time for ONE set: the library's per-set time, clamped and rounded."""
+    settings = settings or {}
+    lo = float(settings.get('workout.min_exercise_minutes', MIN_EXERCISE_MINUTES))
+    hi = float(settings.get('workout.max_exercise_minutes', MAX_EXERCISE_MINUTES))
+    minutes = _minutes(exercise) or lo
+    seconds = min(max(minutes, lo), hi) * 60
+    return max(SET_SECONDS_STEP,
+               int(round(seconds / SET_SECONDS_STEP) * SET_SECONDS_STEP))
+
+
+def block_seconds(set_secs, sets, rest_secs):
+    """Seconds an exercise occupies: its sets plus the rests between them."""
+    return set_secs * sets + rest_secs * max(0, sets - 1)
+
+
+def fit_base_sets(chosen, budget_seconds, base, difficulty, settings):
+    """Trade sets for exercises when the prescribed set count won't fit.
+
+    Four sets of one movement is not an advanced ten-minute session, it is a
+    single exercise repeated — so the set count comes down until roughly
+    MIN_EXERCISES blocks fit, and never below two: one set of anything is a
+    demonstration, not training.
+    """
+    sample = [ex for ex in chosen[:5]]
+    if not sample or base <= 2:
+        return base
+    set_secs = sorted(set_seconds_for(ex, settings) for ex in sample)[len(sample) // 2]
+    rest_secs = sorted(rest_seconds_for(ex.get('category'), difficulty, settings)
+                       for ex in sample)[len(sample) // 2]
+    while base > 2:
+        needed = (MIN_EXERCISES * block_seconds(set_secs, base, rest_secs)
+                  + (MIN_EXERCISES - 1) * rest_secs)
+        if needed <= budget_seconds:
+            break
+        base -= 1
+    return base
+
+
+def plan_sets(chosen, minutes, difficulty, settings, base_sets=None, max_sets=None):
+    """Turn an ordered list of exercises into timed set blocks fitting `minutes`.
+
+    The budget is wall clock, not work: rest between sets *and* the rest the
+    session takes between exercises are both paid out of it. Exercises that no
+    longer fit are dropped rather than shrunk, and leftover time is spent
+    round-robin on extra sets so every movement grows evenly instead of the
+    first one swallowing the budget.
+
+    Pure: exercise dicts and a settings dict in, new dicts out. Each block
+    carries `sets`, `set_seconds`, `rest_seconds` and a `duration` in minutes
+    that is the whole block, so existing duration arithmetic keeps working.
+    """
+    budget = max(0.0, float(minutes or 0)) * 60
+    settings = settings or {}
+    base = base_sets if base_sets is not None else \
+        SETS_BY_DIFFICULTY.get(str(difficulty or '').lower(), 2)
+    ceiling = MAX_SETS if max_sets is None else max_sets
+    base = max(1, min(base, ceiling))
+    if max_sets is None:
+        base = fit_base_sets(chosen, budget, base, difficulty, settings)
+
+    blocks, spent = [], 0.0
+    for exercise in chosen:
+        if len(blocks) >= MAX_EXERCISES:
+            break
+        set_secs = set_seconds_for(exercise, settings)
+        rest_secs = rest_seconds_for(exercise.get('category'), difficulty, settings)
+        transition = rest_secs if blocks else 0
+        # A four-minute cardio interval is already a block; splitting it into
+        # sets would misread the library. Anything that long runs once.
+        long_block = set_secs > LONG_SET_SECONDS
+        sets = 1 if long_block else base
+        floor = 1 if not blocks else min(sets, MIN_SETS_TO_ADMIT)
+        # Shrink rather than return nothing when the budget is small, but stop
+        # at the floor: a one-set stub on the end is worse than giving that
+        # time to the exercises already chosen.
+        while sets > floor and spent + transition + block_seconds(set_secs, sets, rest_secs) > budget:
+            sets -= 1
+        cost = transition + block_seconds(set_secs, sets, rest_secs)
+        if blocks and spent + cost > budget:
+            continue
+        block = dict(exercise)
+        block['sets'] = sets
+        block['set_seconds'] = set_secs
+        block['rest_seconds'] = rest_secs
+        block['_max_sets'] = 1 if long_block else ceiling
+        blocks.append(block)
+        spent += cost
+
+    # Spend what is left on extra sets, one per exercise per pass.
+    progressed = True
+    while progressed:
+        progressed = False
+        for block in blocks:
+            if block['sets'] >= block['_max_sets']:
+                continue
+            cost = block['rest_seconds'] + block['set_seconds']
+            if spent + cost <= budget:
+                block['sets'] += 1
+                spent += cost
+                progressed = True
+
+    for block in blocks:
+        block.pop('_max_sets', None)
+        block['work_seconds'] = block['set_seconds'] * block['sets']
+        block['duration'] = round(
+            block_seconds(block['set_seconds'], block['sets'], block['rest_seconds']) / 60.0, 2)
+    return blocks
+
+
+def plan_total_minutes(blocks):
+    """Wall clock for a planned workout: every block plus the rest between them.
+
+    Each planned block carries the rest that follows it, so the total is read
+    off the plan rather than recomputed. The explanation sentence and the API
+    total both come through here, which is what keeps them from disagreeing —
+    and a workout with no rest figures (an older saved one) simply totals its
+    blocks, exactly as it always did.
+    """
+    total = sum(_minutes(b) for b in blocks)
+    for block in blocks[1:]:
+        try:
+            total += float(block.get('rest_seconds') or 0) / 60.0
+        except (TypeError, ValueError):
+            pass
+    return round(total, 1)
+
+
+# ── Choosing what goes in ────────────────────────────────────────────
+
+_MUSCLE_SPLIT = re.compile(r'[,/&]| and ')
+
+
+def muscle_tokens(exercise):
+    """Muscle words for overlap scoring — 'Chest, shoulders' → {chest, shoulders}."""
+    raw = str(exercise.get('target_muscles') or '')
+    return {t.strip().lower() for t in _MUSCLE_SPLIT.split(raw) if t.strip()}
+
+
+def selection_penalty(exercise, difficulty, avoid, category_counts, used_muscles):
+    """Lower is better. Deterministic, so the same request plans the same way.
+
+    Four pressures, in the order they matter for a training session:
+    difficulty match, then spread across the domains asked for, then muscle
+    groups that have not been worked yet, then anything trained recently.
+    """
+    target_rank = {'beginner': 0, 'intermediate': 1, 'advanced': 2}.get(
+        str(difficulty or '').lower())
+    if target_rank is None:
+        penalty = 0.0
+    else:
+        penalty = 3.0 * abs(_difficulty_rank(exercise) - target_rank)
+
+    penalty += 2.0 * category_counts.get(exercise.get('category') or 'General', 0)
+
+    tokens = muscle_tokens(exercise)
+    if tokens:
+        overlap = len(tokens & used_muscles) / float(len(tokens))
+        penalty += 2.0 * overlap
+    else:
+        penalty += 0.5  # unlabelled exercises can't be balanced, so mildly deprioritise
+
+    if str(exercise.get('name', '')).lower() in avoid:
+        penalty += 4.0
+    return penalty
+
+
+def _tiebreak(name, seed):
+    """Stable pseudo-order for equally-scored exercises.
+
+    Plain alphabetical tie-breaking made every beginner strength session open
+    with Arm Circles. Hashing name+seed keeps a single request deterministic
+    (same seed, same workout) while a seed that changes daily rotates which of
+    several equally good exercises comes first.
+    """
+    return hashlib.md5(f"{seed}|{name}".encode('utf-8')).hexdigest()
+
+
+def select_balanced(pool, difficulty, avoid=(), limit=MAX_EXERCISES, seed=''):
+    """Pick up to `limit` exercises that cover the pool instead of scanning it.
+
+    Greedy, but the score is recomputed after every pick, so each choice sees
+    which categories and muscles the workout already has. That is what stops a
+    'Strength + Endurance' request coming back as eight chest exercises in
+    database order, which is what a plain greedy fill always did.
+    """
+    avoid = {str(n).lower() for n in (avoid or ())}
+    remaining = list(pool)
+    chosen, category_counts, used_muscles = [], {}, set()
+
+    while remaining and len(chosen) < limit:
+        best = min(remaining, key=lambda ex: (
+            selection_penalty(ex, difficulty, avoid, category_counts, used_muscles),
+            _tiebreak(str(ex.get('name', '')), seed)))
+        remaining.remove(best)
+        chosen.append(best)
+        category = best.get('category') or 'General'
+        category_counts[category] = category_counts.get(category, 0) + 1
+        used_muscles |= muscle_tokens(best)
+    return chosen
+
+
+def select_exercises_rule_based(pool, duration, difficulty, settings, avoid=(), seed=''):
     """Fill `duration` minutes from `pool` without a model.
 
     This is the engine's own answer, used whenever the model is off, absent or
-    rejected. It widens its search in defined steps rather than returning a
-    thin workout: the requested difficulty first, then neighbouring
-    difficulties when workout.difficulty_spillover allows it.
+    rejected — and, since it also decides how many exercises a workout should
+    contain, the reference plan the model is asked to improve on.
+
+    It widens its search in defined steps rather than returning a thin workout:
+    the requested difficulty first, then neighbouring difficulties when
+    workout.difficulty_spillover allows it.
     """
     settings = settings or {}
     avoid = {str(name).lower() for name in (avoid or ())}
     variety = settings.get('workout.variety', 'balanced')
-    min_block = float(settings.get('workout.min_exercise_minutes', MIN_EXERCISE_MINUTES))
-    max_block = float(settings.get('workout.max_exercise_minutes', MAX_EXERCISE_MINUTES))
 
     wanted = str(difficulty or '').lower()
     exact = [ex for ex in pool if wanted and wanted in str(ex.get('difficulty', '')).lower()]
-
     tiers = [exact, pool] if settings.get('workout.difficulty_spillover', True) \
         else [exact or pool]
 
@@ -1263,64 +1616,39 @@ def select_exercises_rule_based(pool, duration, difficulty, settings, avoid=()):
         if not tier:
             continue
         candidates = list(tier)
-
         if variety == 'strict':
             fresh = [ex for ex in candidates if str(ex.get('name', '')).lower() not in avoid]
             if fresh:
                 candidates = fresh
-        elif variety == 'balanced':
-            # Recently-trained exercises sink to the bottom rather than being
-            # removed, so a small library can still fill the time.
-            candidates.sort(key=lambda ex: str(ex.get('name', '')).lower() in avoid)
+        # 'balanced' needs no filtering: recency is one term in the penalty, so
+        # a recent exercise still appears when a small library has nothing else.
+        soften = () if variety == 'repeat_ok' else avoid
 
-        chosen, total = [], 0.0
-        for exercise in candidates:
-            block = min(max(_minutes(exercise), min_block), max_block)
-            if total + block > duration:
-                continue
-            picked = dict(exercise)
-            picked['duration'] = block
-            chosen.append(picked)
-            total += block
-            if duration - total < min_block:
-                break
+        chosen = select_balanced(candidates, difficulty, soften, MAX_EXERCISES, seed)
+        blocks = plan_sets(chosen, duration, difficulty, settings)
+        if blocks:
+            return blocks
 
-        if chosen:
-            return chosen
-
-    # Nothing fitted the budget — return the shortest single exercise so the
-    # user gets a workout rather than an empty screen.
     if pool:
-        shortest = dict(min(pool, key=_minutes))
-        shortest['duration'] = min(max(_minutes(shortest), min_block), max_block)
-        return [shortest]
+        return plan_sets([min(pool, key=_minutes)], duration, difficulty, settings,
+                         base_sets=1, max_sets=1)
     return []
 
 
-def build_bookend(pool, minutes):
+def build_bookend(pool, minutes, settings=None):
     """Easy mobility work totalling roughly `minutes`, for a warm-up or cool-down.
 
     Drawn from the same library as everything else, so a warm-up respects the
     user's equipment and exclusion settings for free — `pool` arrives filtered.
+    One set each: a warm-up is a sequence, not a prescription.
     """
     if minutes <= 0 or not pool:
         return []
     mobility = [ex for ex in pool if ex.get('category') == MOBILITY_CATEGORY] or pool
     easy = [ex for ex in mobility
             if str(ex.get('difficulty', '')).lower() == 'beginner'] or mobility
-
-    chosen, total = [], 0.0
-    for exercise in sorted(easy, key=_minutes):
-        block = _minutes(exercise) or 0.5
-        if total + block > minutes and chosen:
-            break
-        picked = dict(exercise)
-        picked['duration'] = block
-        chosen.append(picked)
-        total += block
-        if total >= minutes:
-            break
-    return chosen
+    chosen = select_balanced(easy, 'beginner', (), MAX_EXERCISES)
+    return plan_sets(chosen, minutes, 'beginner', settings or {}, base_sets=1, max_sets=1)
 
 
 def recent_exercise_names(user_id, sessions=5):
@@ -1384,7 +1712,8 @@ def api_generate_workout():
     """Generate a custom workout from the request and the user's settings.
 
     Each stage falls through to the next:
-      1. the local model, when ai.enabled and ai.workout_generation allow it,
+      1. the local model, when ai.enabled and ai.workout_generation allow it
+         (workout generation is opt-in: the rule engine measured better),
       2. the rule-based selector,
       3. the single shortest exercise, so a non-empty pool never yields an
          empty workout.
@@ -1437,38 +1766,42 @@ def api_generate_workout():
 
         bookend_pool = (build_candidate_pool(['Speed & Mobility'], settings, library)
                         if (warmup_minutes or cooldown_minutes) else [])
-        warmup = build_bookend(bookend_pool, warmup_minutes)
-        cooldown = build_bookend(bookend_pool, cooldown_minutes)
+        warmup = build_bookend(bookend_pool, warmup_minutes, settings)
+        cooldown = build_bookend(bookend_pool, cooldown_minutes, settings)
 
+        avoid = (recent_exercise_names(session.get('user_id', 'guest'))
+                 if settings.get('workout.variety', 'balanced') != 'repeat_ok' else ())
+        # Rotates the tie-break order once a day per user, so asking for the
+        # same session tomorrow is not the same six exercises in the same
+        # order — without making a single request non-deterministic.
+        seed = f"{session.get('user_id', 'guest')}:{datetime.now().strftime('%Y-%m-%d')}"
+
+        # The rule-based plan is built first even when the model is on: it is
+        # the fallback, and it is also how many exercises the time actually
+        # holds once sets and rest are paid for. The model is then asked to
+        # choose that many from a shortlist — a judgement call — instead of
+        # doing the arithmetic the engine has already done.
+        main_exercises = select_exercises_rule_based(
+            pool, main_duration, difficulty, settings, avoid=avoid, seed=seed)
         engine = 'rules'
-        main_exercises = None
 
-        if settings.get('ai.enabled', True) and settings.get('ai.workout_generation', True) and pool:
-            candidates = [{
-                'name': ex.get('name'),
-                'category': ex.get('category'),
-                'duration': ex.get('duration', MIN_EXERCISE_MINUTES),
-                'difficulty': ex.get('difficulty', 'beginner'),
-                'description': ex.get('description', ''),
-                'target_muscles': ex.get('target_muscles', ''),
-            } for ex in pool]
+        if (settings.get('ai.enabled', True) and settings.get('ai.workout_generation', False)
+                and main_exercises):
+            # Full library records, so a model-chosen exercise keeps its
+            # instructions and equipment just like a rule-chosen one.
+            candidates = shortlist_candidates(pool, difficulty, avoid, seed=seed)
             llm_workout = generate_workout_via_llm(
-                domains, main_duration, difficulty, focus, candidates, goal, settings)
+                domains, main_duration, difficulty, focus, candidates, goal, settings,
+                target_count=len(main_exercises), avoid=avoid)
             if llm_workout:
                 main_exercises = llm_workout['exercises']
                 engine = 'ai'
-
-        if main_exercises is None:
-            avoid = (recent_exercise_names(session.get('user_id', 'guest'))
-                     if settings.get('workout.variety', 'balanced') != 'repeat_ok' else ())
-            main_exercises = select_exercises_rule_based(
-                pool, main_duration, difficulty, settings, avoid=avoid)
 
         main_exercises = order_exercises(main_exercises,
                                          settings.get('workout.ordering', 'alternate'))
 
         exercises = [_json_safe_exercise(ex) for ex in (warmup + main_exercises + cooldown)]
-        total_time = round(sum(_minutes(ex) for ex in exercises), 1)
+        total_time = plan_total_minutes(exercises)
 
         wanted_categories = {DOMAIN_TO_CATEGORY.get(d) for d in domains}
         unfiltered = sum(1 for e in library if e.get('category') in wanted_categories)
@@ -1520,7 +1853,7 @@ def api_today_workout():
             return jsonify({'success': False, 'fallback': True,
                             'reason': 'Freeform program day'})
 
-        exercises = resolve_prescribed_exercises(prescription)
+        exercises = resolve_prescribed_exercises(prescription, get_settings())
         total = round(sum(ex['duration'] for ex in exercises), 1)
 
         # Intensity lives in the high-level program CSV; use it for rest times

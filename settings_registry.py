@@ -690,8 +690,10 @@ SETTINGS = [
     ),
     Setting(
         key='ai.workout_generation', label='Let it build workouts', group='Local AI', tier='simple',
-        type='bool', default=True,
-        help='The model picks exercises from your library; every pick is checked '
+        type='bool', default=False,
+        help='Off by default: benchmarked against the rule-based planner, a small '
+             'local model was slower and no more accurate. Turn it on if you want '
+             'your written goal taken into account; every pick is still checked '
              'against the database before you see it.',
         keywords=('ai workouts', 'generate workout', 'ai planning', 'model picks'),
     ),
