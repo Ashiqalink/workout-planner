@@ -27,10 +27,11 @@ import http.client
 import itertools
 import json
 import logging
-import os
 import threading
 import time
 import urllib.parse
+
+import config
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +73,7 @@ PHASE_ORDER = ('power', 'compound', 'isolation', 'conditioning', 'mobility',
 
 
 def api_key():
-    return (os.environ.get('TYPESAFE_API_KEY') or '').strip()
+    return config.TYPESAFE_API_KEY
 
 
 def available():

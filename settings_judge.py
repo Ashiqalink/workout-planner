@@ -74,7 +74,19 @@ def _build_options():
     return criteria, targets
 
 
-OPTIONS, OPTION_IDS = _build_options()
+OPTIONS, OPTION_IDS = {}, {}
+
+
+def refresh_options():
+    """Rebuild the option list after ``reg.apply_mode``; in place, like the registry."""
+    criteria, targets = _build_options()
+    OPTIONS.clear()
+    OPTIONS.update(criteria)
+    OPTION_IDS.clear()
+    OPTION_IDS.update(targets)
+
+
+refresh_options()
 
 QUESTIONS = {
     'setting': {

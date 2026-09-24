@@ -706,8 +706,9 @@ def _fake_judge(monkeypatch, *rounds):
         calls.append(questions)
         return rounds[len(calls) - 1] if len(calls) <= len(rounds) else None
 
+    import config
     import workout_judge
-    monkeypatch.setenv('TYPESAFE_API_KEY', 'test')
+    monkeypatch.setattr(config, 'TYPESAFE_API_KEY', 'test')
     monkeypatch.setattr(workout_judge, 'system_one', system_one)
     return calls
 

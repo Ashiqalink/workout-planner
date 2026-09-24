@@ -61,7 +61,12 @@
                 <label for="goal">Goal <span class="plan-optional">optional</span></label>
                 <textarea id="goal" name="goal" class="form-control" rows="2"
                     placeholder="Low impact for a sore back, or extra shoulder stability"></textarea>
-                {% if not (settings['ai.enabled'] and settings['ai.workout_generation']) %}
+                {% if is_hosted %}
+                <p class="plan-note">
+                    Written goals are read by a local AI model, which only the
+                    download version runs. Here they are ignored.
+                </p>
+                {% elif not (settings['ai.enabled'] and settings['ai.workout_generation']) %}
                 <p class="plan-note">
                     Local AI is off, so written goals are ignored. Turn it on under
                     <a href="{{ url_for('settings_page') }}">Settings, Local AI</a>.

@@ -8,6 +8,7 @@ import json
 import pytest
 
 import app as app_module
+import config
 import workout_judge as judge
 from conftest import CSRF
 
@@ -145,7 +146,7 @@ def test_system_one_is_a_noop_without_a_key(monkeypatch):
 
 
 def test_system_one_retries_overload_then_gives_up(monkeypatch):
-    monkeypatch.setenv('TYPESAFE_API_KEY', 'test-key')
+    monkeypatch.setattr(config, 'TYPESAFE_API_KEY', 'test-key')
     monkeypatch.setattr(judge.time, 'sleep', lambda s: None)
     attempts = []
 
@@ -158,7 +159,7 @@ def test_system_one_retries_overload_then_gives_up(monkeypatch):
 
 
 def test_system_one_parses_answers_and_caches_them(monkeypatch):
-    monkeypatch.setenv('TYPESAFE_API_KEY', 'test-key')
+    monkeypatch.setattr(config, 'TYPESAFE_API_KEY', 'test-key')
     sent = []
 
     def fake(payload, timeout):
@@ -180,7 +181,7 @@ def test_system_one_parses_answers_and_caches_them(monkeypatch):
 
 
 def test_system_one_gives_up_on_bad_status_and_bad_json(monkeypatch):
-    monkeypatch.setenv('TYPESAFE_API_KEY', 'test-key')
+    monkeypatch.setattr(config, 'TYPESAFE_API_KEY', 'test-key')
     monkeypatch.setattr(judge, '_post', lambda p, t: (401, b'{"detail": "no"}'))
     assert judge.system_one({'x': 1}, {}) is None
     monkeypatch.setattr(judge, '_post', lambda p, t: (200, b'not json'))
@@ -190,9 +191,9 @@ def test_system_one_gives_up_on_bad_status_and_bad_json(monkeypatch):
 
 
 def test_post_reuses_one_connection_and_replaces_a_stale_one(monkeypatch):
-    monkeypatch.setenv('TYPESAFE_API_KEY', 'test-key')
+    monkeypatch.setattr(config, 'TYPESAFE_API_KEY', 'test-key')
     monkeypatch.undo()  # get the real _post back for this test only
-    monkeypatch.setenv('TYPESAFE_API_KEY', 'test-key')
+    monkeypatch.setattr(config, 'TYPESAFE_API_KEY', 'test-key')
     made, calls = [], []
 
     class Resp:
@@ -299,7 +300,7 @@ def test_rank_orderings_prefers_the_textbook_sequence():
 
 
 def test_choose_order_keeps_the_current_order_on_a_near_tie(monkeypatch):
-    monkeypatch.setenv('TYPESAFE_API_KEY', 'test-key')
+    monkeypatch.setattr(config, 'TYPESAFE_API_KEY', 'test-key')
     seen = {}
 
     def fake(state, questions, timeout=None):
@@ -326,7 +327,7 @@ def test_choose_order_keeps_the_current_order_on_a_near_tie(monkeypatch):
 
 
 def test_choose_order_switches_when_another_order_scores_clearly_higher(monkeypatch):
-    monkeypatch.setenv('TYPESAFE_API_KEY', 'test-key')
+    monkeypatch.setattr(config, 'TYPESAFE_API_KEY', 'test-key')
 
     def fake(state, questions, timeout=None):
         answers = {}
@@ -345,7 +346,7 @@ def test_choose_order_switches_when_another_order_scores_clearly_higher(monkeypa
 
 
 def test_choose_order_needs_a_real_margin_not_a_hair(monkeypatch):
-    monkeypatch.setenv('TYPESAFE_API_KEY', 'test-key')
+    monkeypatch.setattr(config, 'TYPESAFE_API_KEY', 'test-key')
 
     def fake(state, questions, timeout=None):
         answers = {}
@@ -364,7 +365,7 @@ def test_choose_order_needs_a_real_margin_not_a_hair(monkeypatch):
 
 
 def test_choose_order_ignores_answers_for_labels_the_engine_did_not_offer(monkeypatch):
-    monkeypatch.setenv('TYPESAFE_API_KEY', 'test-key')
+    monkeypatch.setattr(config, 'TYPESAFE_API_KEY', 'test-key')
     monkeypatch.setattr(judge, 'system_one', lambda *a, **k: {
         'random_order.order': score(3, judge.ORDER_LEVELS)})
     picked = judge.choose_order({'phased': [], 'alternate': []}, 'alternate', 'beginner', 12)
@@ -381,7 +382,7 @@ def test_generate_workout_has_no_confidence_without_a_key(client):
 
 
 def test_generate_workout_reports_confidence_and_reorders(client, monkeypatch):
-    monkeypatch.setenv('TYPESAFE_API_KEY', 'test-key')
+    monkeypatch.setattr(config, 'TYPESAFE_API_KEY', 'test-key')
     # Make the engine's own reading a tie so the judge gets to decide.
     monkeypatch.setattr(judge, 'rank_orderings',
                         lambda c, d: (list(c), {l: 0.5 for l in c}))
@@ -427,7 +428,7 @@ def test_generate_workout_reports_confidence_and_reorders(client, monkeypatch):
 
 
 def test_generate_workout_keeps_engine_order_when_orders_tie(client, monkeypatch):
-    monkeypatch.setenv('TYPESAFE_API_KEY', 'test-key')
+    monkeypatch.setattr(config, 'TYPESAFE_API_KEY', 'test-key')
     monkeypatch.setattr(judge, 'rank_orderings',
                         lambda c, d: (list(c), {l: 0.5 for l in c}))
 
@@ -452,7 +453,7 @@ def test_generate_workout_keeps_engine_order_when_orders_tie(client, monkeypatch
 def test_generate_workout_asks_about_one_order_when_the_rubric_is_clear(client, monkeypatch):
     """The engine's rubric separates phased from alternate by itself, so the
     judge is asked to score one sequence — a third of the questions."""
-    monkeypatch.setenv('TYPESAFE_API_KEY', 'test-key')
+    monkeypatch.setattr(config, 'TYPESAFE_API_KEY', 'test-key')
     seen = []
 
     def fake(state, questions, timeout=None):
@@ -475,7 +476,7 @@ def test_generate_workout_asks_about_one_order_when_the_rubric_is_clear(client, 
 def test_generate_workout_scores_once_when_every_ordering_agrees(client, monkeypatch):
     """A three-exercise strength session sequences the same way under every
     ordering, so there is nothing to choose — the judge just scores it."""
-    monkeypatch.setenv('TYPESAFE_API_KEY', 'test-key')
+    monkeypatch.setattr(config, 'TYPESAFE_API_KEY', 'test-key')
     seen = []
 
     def fake(state, questions, timeout=None):
@@ -494,7 +495,7 @@ def test_generate_workout_scores_once_when_every_ordering_agrees(client, monkeyp
 
 
 def test_generate_workout_survives_a_dead_judge(client, monkeypatch):
-    monkeypatch.setenv('TYPESAFE_API_KEY', 'test-key')
+    monkeypatch.setattr(config, 'TYPESAFE_API_KEY', 'test-key')
     monkeypatch.setattr(judge, 'system_one', lambda *a, **k: None)
     data = client.post('/api/generate-workout', json={
         'domains': ['Strength'], 'duration': 15, 'difficulty': 'beginner'}).get_json()
@@ -502,7 +503,7 @@ def test_generate_workout_survives_a_dead_judge(client, monkeypatch):
 
 
 def test_judge_setting_turns_it_off(client, monkeypatch):
-    monkeypatch.setenv('TYPESAFE_API_KEY', 'test-key')
+    monkeypatch.setattr(config, 'TYPESAFE_API_KEY', 'test-key')
     called = []
     monkeypatch.setattr(judge, 'system_one', lambda *a, **k: called.append(1))
     original = app_module.get_settings
@@ -538,7 +539,7 @@ def test_region_questions_fan_out_one_noul_per_region_per_exercise():
 
 
 def test_tag_regions_batches_and_skips_a_failed_batch(monkeypatch):
-    monkeypatch.setenv('TYPESAFE_API_KEY', 'test-key')
+    monkeypatch.setattr(config, 'TYPESAFE_API_KEY', 'test-key')
     monkeypatch.setattr(judge, 'REGION_BATCH', 2)
     calls = []
 
@@ -558,7 +559,7 @@ def test_tag_regions_batches_and_skips_a_failed_batch(monkeypatch):
 
 
 def test_tag_regions_drops_a_row_with_an_unreadable_answer(monkeypatch):
-    monkeypatch.setenv('TYPESAFE_API_KEY', 'test-key')
+    monkeypatch.setattr(config, 'TYPESAFE_API_KEY', 'test-key')
 
     def fake(state, questions, timeout=None):
         answers = fake_tagger({(0, 'legs'), (1, 'legs')})(state, questions)
@@ -600,7 +601,7 @@ def test_library_for_hides_tags_when_the_setting_is_off(monkeypatch):
 
 
 def test_tag_library_regions_writes_probabilities_to_the_rows(monkeypatch):
-    monkeypatch.setenv('TYPESAFE_API_KEY', 'test-key')
+    monkeypatch.setattr(config, 'TYPESAFE_API_KEY', 'test-key')
     monkeypatch.setattr(judge, 'tag_regions',
                         lambda rows, timeout=None: {0: {'push': 0.9}, 2: {'legs': 0.8}})
     conn = app_module.get_db_connection()
@@ -632,7 +633,7 @@ def test_tag_regions_route_requires_login_key_and_setting(client, logged_in_clie
                        headers={'X-CSRF-Token': CSRF}).status_code == 401
     assert logged_in_client.post('/api/exercises/tag-regions', json={},
                                  headers={'X-CSRF-Token': CSRF}).status_code == 503
-    monkeypatch.setenv('TYPESAFE_API_KEY', 'test-key')
+    monkeypatch.setattr(config, 'TYPESAFE_API_KEY', 'test-key')
     original = app_module.get_settings
     monkeypatch.setattr(app_module, 'get_settings',
                         lambda: dict(original(), **{'ai.judge_regions': False}))
@@ -651,7 +652,7 @@ def test_tag_regions_route_requires_login_key_and_setting(client, logged_in_clie
 
 
 def test_tag_regions_route_reports_a_failure(logged_in_client, monkeypatch):
-    monkeypatch.setenv('TYPESAFE_API_KEY', 'test-key')
+    monkeypatch.setattr(config, 'TYPESAFE_API_KEY', 'test-key')
 
     def boom(only_untagged=True, timeout=None):
         raise RuntimeError('disk full')
@@ -662,7 +663,7 @@ def test_tag_regions_route_reports_a_failure(logged_in_client, monkeypatch):
 
 
 def test_add_exercise_tags_the_new_row_when_the_judge_is_on(logged_in_client, monkeypatch):
-    monkeypatch.setenv('TYPESAFE_API_KEY', 'test-key')
+    monkeypatch.setattr(config, 'TYPESAFE_API_KEY', 'test-key')
     monkeypatch.setattr(judge, 'system_one', fake_tagger({(0, 'pull')}))
     resp = logged_in_client.post('/api/exercises/add', json={
         'name': 'Towel Row', 'category': 'Strength & Power', 'duration': 1,
@@ -675,7 +676,7 @@ def test_add_exercise_tags_the_new_row_when_the_judge_is_on(logged_in_client, mo
 
 
 def test_add_exercise_survives_a_dead_judge(logged_in_client, monkeypatch):
-    monkeypatch.setenv('TYPESAFE_API_KEY', 'test-key')
+    monkeypatch.setattr(config, 'TYPESAFE_API_KEY', 'test-key')
     monkeypatch.setattr(judge, 'system_one', lambda *a, **k: None)
     resp = logged_in_client.post('/api/exercises/add', json={
         'name': 'Towel Curl', 'category': 'Strength & Power', 'duration': 1,
@@ -689,11 +690,11 @@ def test_add_exercise_survives_a_dead_judge(logged_in_client, monkeypatch):
 def test_cli_tag_regions(flask_app, monkeypatch):
     runner = flask_app.test_cli_runner()
     assert 'nothing tagged' in runner.invoke(args=['tag-regions']).output
-    monkeypatch.setenv('TYPESAFE_API_KEY', 'test-key')
+    monkeypatch.setattr(config, 'TYPESAFE_API_KEY', 'test-key')
     monkeypatch.setattr(app_module, 'tag_library_regions',
                         lambda only_untagged=True, timeout=None: 3 if only_untagged else 9)
     assert 'Tagged 3' in runner.invoke(args=['tag-regions']).output
-    monkeypatch.setenv('TAG_ALL', '1')
+    monkeypatch.setattr(config, 'TAG_ALL', True)
     assert 'Tagged 9' in runner.invoke(args=['tag-regions']).output
 
 
@@ -731,7 +732,7 @@ def test_orchestrate_week_without_key_uses_the_rule():
 
 
 def test_orchestrate_week_applies_confident_pick(monkeypatch):
-    monkeypatch.setenv('TYPESAFE_API_KEY', 'test-key')
+    monkeypatch.setattr(config, 'TYPESAFE_API_KEY', 'test-key')
 
     def fake(state, questions, timeout=None):
         labels = list(state['candidates'])
@@ -778,7 +779,7 @@ def test_orchestrate_route_validates(client):
 
 def test_plan_confidence_route(client, monkeypatch):
     assert client.get('/api/plan/confidence?week=1').get_json()['confidence'] is None
-    monkeypatch.setenv('TYPESAFE_API_KEY', 'test-key')
+    monkeypatch.setattr(config, 'TYPESAFE_API_KEY', 'test-key')
     app_module._program_week_cache.clear()
     seen = {}
 

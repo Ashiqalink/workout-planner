@@ -24,8 +24,9 @@ CSRF = 'test-csrf-token'
 @pytest.fixture(autouse=True)
 def no_typesafe_key(monkeypatch):
     """No key, no socket, no memory between tests: the judge never leaves the process."""
+    import config
     import workout_judge
-    monkeypatch.delenv('TYPESAFE_API_KEY', raising=False)
+    monkeypatch.setattr(config, 'TYPESAFE_API_KEY', '')
     monkeypatch.setattr(workout_judge, '_post',
                         lambda payload, timeout: (_ for _ in ()).throw(
                             AssertionError('test reached the network')))

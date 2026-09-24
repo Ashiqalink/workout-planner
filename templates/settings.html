@@ -75,7 +75,9 @@
     <p class="assistant-sub">
       Describe what you want in your own words. It finds the switches, shows you exactly
       what will change, and waits for your OK.
-      {% if not settings['ai.enabled'] %}
+      {% if is_hosted %}
+      It uses the built-in matcher, which handles most everyday requests on its own.
+      {% elif not settings['ai.enabled'] %}
       Your local model is turned off, so this uses the built-in matcher, which handles
       most everyday requests on its own.
       {% endif %}

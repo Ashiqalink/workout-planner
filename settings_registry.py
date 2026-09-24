@@ -24,11 +24,18 @@ Two ideas keep the surface small while the option count stays large:
     Everyday phrasings a person might use for the setting ("night mode", "make
     the text bigger"). The deterministic matcher in ``match_intent`` scores
     against these, which is what lets the assistant work with no model running.
+
+``modes``
+    ``modes={'local'}`` keeps a setting out of the hosted site. ``SETTINGS`` is
+    already filtered to the running mode, so every consumer above loses the
+    setting at once; ``ALL_SETTINGS`` is the unfiltered list.
 """
 
 import re
 from dataclasses import dataclass, field
 from typing import Any, Optional
+
+import config
 
 
 # ── Setting definition ───────────────────────────────────────────────
@@ -64,6 +71,13 @@ class Setting:
     # describe: "turn off animations" means Reduce motion goes ON. The intent
     # matcher flips the requested direction for these.
     intent_inverted: bool = False
+    # Modes the setting exists in (config.FITTRACK_MODE). Outside them it is
+    # not hidden but absent: no control, no API key, no assistant candidate.
+    modes: frozenset = frozenset(config.MODES)
+
+    def __post_init__(self):
+        # Accept modes={'local'} in entries; stored frozen so Setting stays hashable.
+        object.__setattr__(self, 'modes', frozenset(self.modes))
 
     @property
     def choice_values(self):
@@ -136,7 +150,7 @@ EQUIPMENT_DEFAULT = ['none', 'chair', 'wall', 'doorway', 'stairs', 'step',
 
 # ── The registry ─────────────────────────────────────────────────────
 
-SETTINGS = [
+ALL_SETTINGS = [
 
     # ── Appearance ───────────────────────────────────────────────────
     Setting(
@@ -690,6 +704,7 @@ SETTINGS = [
              'for everything. Nothing breaks — it just gets more predictable.',
         keywords=('ai', 'local ai', 'llm', 'model', 'lm studio', 'turn off ai',
                   'disable ai', 'offline'),
+        modes={'local'},
     ),
     Setting(
         key='ai.workout_generation', label='Let it build workouts', group='Local AI', tier='simple',
@@ -699,6 +714,7 @@ SETTINGS = [
              'your written goal taken into account; every pick is still checked '
              'against the database before you see it.',
         keywords=('ai workouts', 'generate workout', 'ai planning', 'model picks'),
+        modes={'local'},
     ),
     Setting(
         key='ai.allow_settings_changes', label='Let it change settings', group='Local AI', tier='simple',
@@ -723,12 +739,14 @@ SETTINGS = [
              '(LM Studio on localhost:1234).',
         keywords=('server url', 'endpoint', 'api url', 'lm studio address',
                   'ollama', 'localhost', 'port'),
+        modes={'local'},
     ),
     Setting(
         key='ai.model', label='Model name', group='Local AI', tier='expert',
         type='text', default='', maximum=120,
         help='Blank asks the server which model is loaded.',
         keywords=('model name', 'which model', 'model id', 'llama', 'qwen', 'mistral'),
+        modes={'local'},
     ),
     Setting(
         key='ai.timeout_seconds', label='Give up after', group='Local AI', tier='expert',
@@ -736,6 +754,7 @@ SETTINGS = [
         help='How long to wait for the model before falling back to built-in rules. '
              'Raise it for large models on slow hardware.',
         keywords=('timeout', 'too slow', 'wait longer', 'give up', 'response time'),
+        modes={'local'},
     ),
     Setting(
         key='ai.fallback_notice', label='Tell me when it falls back', group='Local AI',
@@ -743,6 +762,7 @@ SETTINGS = [
         help='A small notice when the rule-based engine handled something instead '
              'of the model, so you always know which one answered.',
         keywords=('fallback', 'notify', 'which engine', 'rule based', 'notice'),
+        modes={'local'},
     ),
 
     # ── Coaching judge (TypeSafe) ────────────────────────────────────
@@ -829,12 +849,25 @@ SETTINGS = [
 ]
 
 
-SETTINGS_BY_KEY = {s.key: s for s in SETTINGS}
-
+# The running mode's view of ALL_SETTINGS. Filled in place by apply_mode, so
+# a module holding a reference to these objects sees a mode switch too.
+MODE = None
+SETTINGS = []
+SETTINGS_BY_KEY = {}
 GROUP_ORDER = []
-for _s in SETTINGS:
-    if _s.group not in GROUP_ORDER:
-        GROUP_ORDER.append(_s.group)
+
+
+def apply_mode(mode):
+    """Restrict SETTINGS, SETTINGS_BY_KEY and GROUP_ORDER to one mode."""
+    global MODE
+    MODE = mode
+    SETTINGS[:] = [s for s in ALL_SETTINGS if mode in s.modes]
+    SETTINGS_BY_KEY.clear()
+    SETTINGS_BY_KEY.update((s.key, s) for s in SETTINGS)
+    GROUP_ORDER[:] = list(dict.fromkeys(s.group for s in SETTINGS))
+
+
+apply_mode(config.MODE)
 
 GROUP_ICONS = {
     'Appearance': 'palette',

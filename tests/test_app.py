@@ -3,6 +3,7 @@ import json
 from datetime import datetime as real_datetime, timedelta
 
 import app as app_module
+import config
 from conftest import CSRF, register_user
 
 
@@ -54,7 +55,7 @@ def test_pages_render(client):
 
 
 def test_debug_endpoint_hidden_without_flag(client, monkeypatch):
-    monkeypatch.delenv('FLASK_DEBUG', raising=False)
+    monkeypatch.setattr(config, 'FLASK_DEBUG', False)
     assert client.get('/api/debug').status_code == 404
 
 
@@ -914,7 +915,7 @@ def test_complete_session_count_falls_back_to_exercise_list(client):
 # ── Debug endpoint & remaining auth paths ────────────────────────────
 
 def test_debug_endpoint_visible_with_flag(client, monkeypatch):
-    monkeypatch.setenv('FLASK_DEBUG', '1')
+    monkeypatch.setattr(config, 'FLASK_DEBUG', True)
     resp = client.get('/api/debug')
     assert resp.status_code == 200
     data = resp.get_json()

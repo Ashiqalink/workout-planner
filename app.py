@@ -17,6 +17,7 @@ import threading
 import secrets
 from werkzeug.security import generate_password_hash, check_password_hash
 
+import config
 import settings_registry as reg
 import workout_judge as judge
 import settings_judge
@@ -30,10 +31,7 @@ app = Flask(__name__)
 LOG_DIR = os.path.join(BASE_DIR, 'logs')
 os.makedirs(LOG_DIR, exist_ok=True)
 
-_log_level = os.environ.get(
-    'LOG_LEVEL',
-    'DEBUG' if os.environ.get('FLASK_DEBUG', '0') == '1' else 'INFO'
-).upper()
+_log_level = config.LOG_LEVEL
 
 _formatter = logging.Formatter(
     '%(asctime)s [%(levelname)s] %(name)s: %(message)s'
@@ -51,8 +49,11 @@ if not any(isinstance(h, logging.StreamHandler) for h in app.logger.handlers):
     app.logger.addHandler(_console_handler)
 logger = app.logger
 
-if os.environ.get('SECRET_KEY'):
-    app.secret_key = os.environ['SECRET_KEY']
+# Before anything is served: a hosted server with no SECRET_KEY stops here.
+config.validate()
+
+if config.SECRET_KEY:
+    app.secret_key = config.SECRET_KEY
 else:
     app.secret_key = secrets.token_hex(16)
     logger.warning("Using random secret key — sessions will not survive restarts. Set SECRET_KEY env var.")
@@ -86,11 +87,12 @@ def inject_globals():
         'settings': values,
         'settings_json': json.dumps(values),
         'ui_tier': reg.TIER_RANK.get(values.get('ui.mode', 'simple'), 0),
+        'is_hosted': config.IS_HOSTED,
     }
 
 # Configuration — absolute paths so the app works no matter what the CWD is.
 # DATABASE_PATH env var lets tests (and deploys) point at another database.
-DATABASE = os.environ.get('DATABASE_PATH', os.path.join(BASE_DIR, 'training_app.db'))
+DATABASE = config.DATABASE_PATH
 DATA_DIR = os.path.join(BASE_DIR, 'data')
 
 # Ensure data directory exists
@@ -791,7 +793,7 @@ def api_exercises():
         logger.exception("Failed to load exercises from database")
         return jsonify({'exercises': [], 'error': str(e)}), 500
 
-LM_STUDIO_API_URL = os.environ.get('LM_STUDIO_API_URL', 'http://localhost:1234/v1')
+LM_STUDIO_API_URL = config.LM_STUDIO_API_URL
 
 _cached_model = None
 
@@ -861,20 +863,29 @@ def ai_config(settings=None):
     these values are per-user and must not poison that cache.
     """
     settings = settings if settings is not None else get_settings()
-    base_url = (settings.get('ai.server_url') or '').strip().rstrip('/') or LM_STUDIO_API_URL
+    base_url = LM_STUDIO_API_URL
+    if config.IS_LOCAL:
+        # Only the download honours a user-typed address. On the hosted site
+        # it would make the server fetch any URL an account holder chose.
+        base_url = (settings.get('ai.server_url') or '').strip().rstrip('/') or base_url
+    enabled = local_model_enabled(settings)
     model = (settings.get('ai.model') or '').strip()
-    if not model:
+    if not model and enabled:
         model = get_loaded_model() if base_url == LM_STUDIO_API_URL else _probe_model(base_url)
     try:
         timeout = int(settings.get('ai.timeout_seconds', 10))
     except (TypeError, ValueError):
         timeout = 10
     return {
-        'enabled': bool(settings.get('ai.enabled', True)),
+        'enabled': enabled,
         'base_url': base_url,
         'model': model,
         'timeout': max(3, min(timeout, 120)),
     }
+
+def local_model_enabled(settings):
+    """Whether this request may call the local model server at all."""
+    return config.LOCAL_MODEL_ALLOWED and bool(settings.get('ai.enabled', True))
 
 def _probe_model(base_url):
     """Ask a non-default endpoint which model it has loaded. Never cached."""
@@ -1044,17 +1055,19 @@ def validate_llm_selection(selection, candidates, duration,
                       f'target is {duration} minutes.')
     return resolved, None
 
-def _post_chat_completion(messages, schema=None, config=None):
+def _post_chat_completion(messages, schema=None, model_config=None):
     """POST to the local model server; returns the message content, or None.
 
     `schema` is the structured-output grammar the response must satisfy. Every
     call site passes one — an unconstrained completion has no place in this app,
     because validation downstream assumes the shape is already enforced.
     """
+    if not config.LOCAL_MODEL_ALLOWED:
+        return None
     schema = schema or WORKOUT_SELECTION_SCHEMA
-    base_url = (config or {}).get('base_url') or LM_STUDIO_API_URL
-    model = (config or {}).get('model') or get_loaded_model()
-    timeout = (config or {}).get('timeout') or 10
+    base_url = (model_config or {}).get('base_url') or LM_STUDIO_API_URL
+    model = (model_config or {}).get('model') or get_loaded_model()
+    timeout = (model_config or {}).get('timeout') or 10
 
     payload = {
         "model": model,
@@ -1121,7 +1134,7 @@ def generate_workout_via_llm(domains, duration, difficulty, focus, candidates,
         return None
 
     settings = settings if settings is not None else {}
-    config = ai_config(settings) if settings else None
+    model_config = ai_config(settings) if settings else None
     bounds = {
         'min_minutes': settings.get('workout.min_exercise_minutes', MIN_EXERCISE_MINUTES),
         'max_minutes': settings.get('workout.max_exercise_minutes', MAX_EXERCISE_MINUTES),
@@ -1190,7 +1203,7 @@ Answer with JSON in exactly this shape (this example is only the format, not the
     ]
 
     for attempt in range(LLM_RETRIES + 1):
-        content = _post_chat_completion(messages, config=config)
+        content = _post_chat_completion(messages, model_config=model_config)
         if content is None:
             return None  # transport failure — retrying won't help
 
@@ -2342,7 +2355,7 @@ def api_generate_workout():
             focus=focus, history=history)
         engine = 'rules'
 
-        if (settings.get('ai.enabled', True) and settings.get('ai.workout_generation', False)
+        if (local_model_enabled(settings) and settings.get('ai.workout_generation', False)
                 and main_exercises):
             # Full library records, so a model-chosen exercise keeps its
             # instructions and equipment just like a rule-chosen one.
@@ -2814,7 +2827,7 @@ def cli_tag_regions():
     if not judge.available():
         print('No TYPESAFE_API_KEY in the environment; nothing tagged.')
         return
-    tagged = tag_library_regions(only_untagged=os.environ.get('TAG_ALL') != '1')
+    tagged = tag_library_regions(only_untagged=not config.TAG_ALL)
     print(f'Tagged {tagged} exercises.')
 
 
@@ -3034,7 +3047,7 @@ def api_activity_heatmap():
 @app.route('/api/debug')
 def api_debug():
     """Debug endpoint to check data loading (only when FLASK_DEBUG=1)."""
-    if os.environ.get('FLASK_DEBUG', '0') != '1':
+    if not config.FLASK_DEBUG:
         return jsonify({'error': 'Not available'}), 404  # noqa: also see __main__ default below
     return jsonify({
         'training_data_loaded': bool(training_data),
@@ -3544,8 +3557,8 @@ def settings_intent_via_llm(query, settings):
     or never produced a usable answer. Nothing here reaches the user directly —
     the caller validates every pair against the registry.
     """
-    config = ai_config(settings)
-    if not config['enabled']:
+    model_config = ai_config(settings)
+    if not model_config['enabled']:
         return None
 
     candidates = shortlist_settings(query)
@@ -3577,7 +3590,7 @@ Example response:
     ]
 
     for attempt in range(LLM_RETRIES + 1):
-        content = _post_chat_completion(messages, schema=SETTINGS_INTENT_SCHEMA, config=config)
+        content = _post_chat_completion(messages, schema=SETTINGS_INTENT_SCHEMA, model_config=model_config)
         if content is None:
             return None  # transport failure — retrying will not help
 
@@ -3637,7 +3650,7 @@ def resolve_settings_request(query, settings):
         if via_judge:
             return list(via_judge), 'judge'
 
-    if settings.get('ai.enabled', True):
+    if local_model_enabled(settings):
         via_model = settings_intent_via_llm(query, settings)
         if via_model is not None:
             return via_model, 'ai'
@@ -4083,15 +4096,15 @@ with app.app_context():
     populate_exercises_db()
 
 if __name__ == '__main__':
-    host = os.environ.get('FLASK_HOST', '127.0.0.1')
-    port = int(os.environ.get('FLASK_PORT', 5000))
+    host = config.FLASK_HOST
+    port = int(config.FLASK_PORT)
     logger.info("Starting FitTrack on http://%s:%s (log level %s)", host, port, _log_level)
     # The TLS handshake to TypeSafe is ~640 ms of a cold call. Paying it here,
     # off the request thread, means the first person to ask a settings
     # question waits for one round trip instead of two.
     threading.Thread(target=settings_judge.warm, daemon=True).start()
     app.run(
-        debug=os.environ.get('FLASK_DEBUG', '0') == '1',
+        debug=config.FLASK_DEBUG,
         host=host,
         port=port
     )
