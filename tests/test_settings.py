@@ -678,3 +678,144 @@ def test_settings_page_renders_every_group(client):
     for group in reg.GROUP_ORDER:
         escaped = group.replace('&', '&amp;')  # Jinja autoescaping
         assert escaped in html, f'group {group} missing from settings page'
+
+
+# ── The judge as a settings finder ───────────────────────────────────
+#
+# Every test fakes `workout_judge.system_one`; the request builder and the
+# value fill-in are what is under test, never the model.
+
+import settings_judge  # noqa: E402
+
+
+def _option_id(target):
+    """The opaque id the model would answer for a setting key or `key=value`."""
+    return next(i for i, t in settings_judge.OPTION_IDS.items() if t == target)
+
+
+def _choice(target, probability=1.0):
+    name = _option_id(target) if target in settings_judge.OPTION_IDS.values() else target
+    return {'type': 'choice', 'choice': name, 'confidence': probability,
+            'probabilities': {name: probability}}
+
+
+def _fake_judge(monkeypatch, *rounds):
+    calls = []
+
+    def system_one(state, questions, timeout=None, retries=2):
+        calls.append(questions)
+        return rounds[len(calls) - 1] if len(calls) <= len(rounds) else None
+
+    import workout_judge
+    monkeypatch.setenv('TYPESAFE_API_KEY', 'test')
+    monkeypatch.setattr(workout_judge, 'system_one', system_one)
+    return calls
+
+
+def test_judge_questions_offer_every_setting_and_a_way_out():
+    q = settings_judge.questions()
+    assert set(q) == {'setting', 'direction'}
+    targets = set(settings_judge.OPTION_IDS.values())
+    assert set(q['setting']['criteria']) == set(settings_judge.OPTION_IDS)
+    assert settings_judge.NONE in targets
+    for setting in reg.SETTINGS:
+        if setting.type == 'enum':
+            # An enum is offered one option per choice, so the value comes back
+            # in the same request as the key.
+            assert {f'{setting.key}={v}' for v in setting.choice_values} <= targets
+        else:
+            assert setting.key in targets
+    theme = _option_id('appearance.theme=dark')
+    assert q['setting']['criteria'][theme] == 'Appearance: Theme = Dark'
+
+
+def test_judge_option_ids_stay_small_on_the_wire():
+    """The body is what the call costs; 25 KB of option text doubled it."""
+    body = json.dumps({'state': {'request': 'x'}, 'questions': settings_judge.questions()})
+    assert len(body) < 9000, 'settings options grew; re-measure before shipping'
+
+
+def test_judge_fills_values_in_code(monkeypatch):
+    calls = _fake_judge(monkeypatch, {'setting': _choice('appearance.font_size'),
+                                      'direction': _choice('increase')})
+    got = settings_judge.resolve('I cannot read it from across the room', reg.defaults())
+    assert got == [{'key': 'appearance.font_size', 'value': 15 + 2}]
+    assert got.judge['direction'] == 'increase' and got.judge['rounds'] == 1
+    assert len(calls) == 1
+
+
+def test_judge_answers_an_enum_value_in_one_request(monkeypatch):
+    calls = _fake_judge(monkeypatch, {'setting': _choice('appearance.theme=dark'),
+                                      'direction': _choice('unclear')})
+    got = settings_judge.resolve('my eyes hurt at night', reg.defaults())
+    assert got == [{'key': 'appearance.theme', 'value': 'dark'}]
+    assert got.judge['rounds'] == 1 and len(calls) == 1
+
+
+def test_judge_prefers_the_wording_over_its_own_option(monkeypatch):
+    """"not kilograms" is the user's own word for it; the registry disambiguates."""
+    _fake_judge(monkeypatch, {'setting': _choice('units.weight=kg'),
+                              'direction': _choice('set_value')})
+    current = dict(reg.defaults(), **{'units.weight': 'kg'})
+    assert settings_judge.resolve('use pounds not kilograms', current) == [
+        {'key': 'units.weight', 'value': 'lb'}]
+
+
+def test_judge_asks_a_second_round_only_for_lists(monkeypatch):
+    cards = reg.SETTINGS_BY_KEY['dashboard.cards']
+    first = cards.choice_values[0]
+    calls = _fake_judge(monkeypatch,
+                        {'setting': _choice('dashboard.cards'), 'direction': _choice('turn_on')},
+                        {f'want:{v}': {'type': 'noul', 'probability': 0.9 if v == first else 0.1}
+                         for v in cards.choice_values})
+    got = settings_judge.resolve('put the thing I look at on the home page',
+                                 dict(reg.defaults(), **{'dashboard.cards': []}))
+    assert got == [{'key': 'dashboard.cards', 'value': [first]}]
+    assert got.judge['rounds'] == 2 and len(calls) == 2
+
+
+def test_judge_low_probability_or_none_proposes_nothing(monkeypatch):
+    _fake_judge(monkeypatch, {'setting': _choice('appearance.theme=dark', 0.2),
+                              'direction': _choice('set_value')})
+    assert settings_judge.resolve('dark', reg.defaults()) == []
+    _fake_judge(monkeypatch, {'setting': _choice(settings_judge.NONE),
+                              'direction': _choice('unclear')})
+    assert settings_judge.resolve('what is the weather', reg.defaults()) == []
+
+
+def test_judge_inverted_toggle_and_text_setting(monkeypatch):
+    _fake_judge(monkeypatch, {'setting': _choice('appearance.reduce_motion'),
+                              'direction': _choice('turn_off')})
+    got = settings_judge.resolve('stop the animations', reg.defaults())
+    assert got == [{'key': 'appearance.reduce_motion', 'value': True}]
+    text = next(s for s in reg.SETTINGS if s.type == 'text')
+    _fake_judge(monkeypatch, {'setting': _choice(text.key), 'direction': _choice('set_value')})
+    assert settings_judge.resolve('call me something', reg.defaults()) == []
+
+
+def test_ask_uses_judge_when_rules_are_unsure(flask_app, monkeypatch):
+    monkeypatch.setattr(app_module, 'settings_intent_via_llm',
+                        lambda *a, **k: pytest.fail('local model reached before the judge'))
+    _fake_judge(monkeypatch, {'setting': _choice('appearance.theme=dark'),
+                              'direction': _choice('unclear')})
+    client = csrf_client(flask_app)
+    data = client.post('/api/settings/ask', headers=H,
+                       json={'query': 'my eyes hurt when I train at night'}).get_json()
+    assert data['engine'] == 'judge'
+    assert data['proposals'][0]['key'] == 'appearance.theme'
+    assert 'Dark' in data['summary']
+
+    # Rules that are sure never wait for the network.
+    calls = _fake_judge(monkeypatch)
+    data = client.post('/api/settings/ask', headers=H, json={'query': 'dark mode'}).get_json()
+    assert data['engine'] == 'rules' and calls == []
+
+    # Switched off, the judge is skipped and the chain falls through.
+    monkeypatch.setattr(app_module, 'settings_intent_via_llm', lambda *a, **k: None)
+    client.post('/api/settings', headers=H,
+                json={'changes': [{'key': 'ai.judge_settings', 'value': False}]})
+    calls = _fake_judge(monkeypatch, {'setting': _choice('appearance.theme=dark'),
+                                      'direction': _choice('set_value')})
+    data = client.post('/api/settings/ask', headers=H,
+                       json={'query': 'my eyes hurt at night'}).get_json()
+    assert data['engine'] == 'rules' and calls == []

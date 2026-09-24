@@ -178,7 +178,7 @@ SETTINGS = [
     Setting(
         key='appearance.font_family', label='Typeface', group='Appearance',
         type='enum', default='default',
-        choices=(('default', 'Inter (default)'), ('system', 'System UI'),
+        choices=(('default', 'Plex Sans (default)'), ('system', 'System UI'),
                  ('serif', 'Serif'), ('mono', 'Monospace'),
                  ('rounded', 'Rounded')),
         help='Font used for body text.',
@@ -361,13 +361,16 @@ SETTINGS = [
     ),
     Setting(
         key='workout.ordering', label='Exercise order', group='Workout building',
-        type='enum', default='alternate',
+        type='enum', default='phased',
         choices=(('as_generated', 'As chosen'), ('alternate', 'Alternate focus areas'),
+                 ('phased', 'Power → compound → accessory → conditioning'),
                  ('hardest_first', 'Hardest first'), ('easiest_first', 'Easiest first'),
                  ('longest_first', 'Longest first'), ('shortest_first', 'Shortest first')),
-        help='How the exercises are sequenced once picked.',
+        help='How the exercises are sequenced once picked. "Phased" is the '
+             'coaching-textbook order: explosive work while fresh, the big '
+             'multi-joint movements next, accessories after, conditioning last.',
         keywords=('order', 'ordering', 'sequence', 'sort exercises', 'hardest first',
-                  'alternate', 'shuffle'),
+                  'alternate', 'shuffle', 'phased', 'compound first', 'textbook order'),
     ),
     Setting(
         key='workout.variety', label='Repeat handling', group='Workout building',
@@ -742,6 +745,54 @@ SETTINGS = [
         keywords=('fallback', 'notify', 'which engine', 'rule based', 'notice'),
     ),
 
+    # ── Coaching judge (TypeSafe) ────────────────────────────────────
+    Setting(
+        key='ai.judge_enabled', label='Score each workout', group='Coaching judge',
+        tier='simple', type='bool', default=True,
+        help='Rates every generated session against a coaching rubric — order, '
+             'balance, level, recovery — using TypeSafe\'s System One model. It '
+             'returns numbers only; the wording is ours. Needs a TYPESAFE_API_KEY '
+             'on the server; without one this does nothing.',
+        keywords=('judge', 'confidence', 'score workout', 'rate workout', 'typesafe',
+                  'coaching check', 'how good is this'),
+    ),
+    Setting(
+        key='ai.judge_reorder', label='Let the judge pick the order', group='Coaching judge',
+        tier='simple', type='bool', default=True,
+        help='When on, the judge scores the orderings the engine built '
+             '(phased, alternating, hardest first) and serves whichever scores '
+             'clearly best. It never adds or removes an exercise.',
+        keywords=('judge order', 'reorder', 'pick order', 'best order', 'sequence'),
+    ),
+    Setting(
+        key='ai.judge_regions', label='Let the judge label body regions', group='Coaching judge',
+        tier='simple', type='bool', default=True,
+        help='The judge answers yes or no per body region for each library '
+             'exercise (push, pull, legs, core, cardio, balance, mobility, '
+             'thinking) and the engine balances sessions from those answers '
+             'instead of guessing from the muscle list. New custom exercises '
+             'are tagged as they are added; run "flask tag-regions" for the '
+             'rest. Off hides the tags without deleting them.',
+        keywords=('regions', 'tag', 'label', 'body region', 'muscle groups',
+                  'judge regions', 'balance'),
+    ),
+    Setting(
+        key='ai.judge_settings', label='Let the judge find settings', group='Coaching judge',
+        tier='simple', type='bool', default=True,
+        help='When a request describes a wish rather than naming a setting, the '
+             'judge picks which setting is meant and what kind of change; the '
+             'value and the wording are ours. Runs only when the built-in '
+             'matcher is unsure, before the local model.',
+        keywords=('judge settings', 'find setting', 'settings by meaning',
+                  'understand requests'),
+    ),
+    Setting(
+        key='ai.judge_timeout_seconds', label='Judge gives up after', group='Coaching judge',
+        tier='expert', type='int', default=8, minimum=2, maximum=30, unit=' s',
+        help='The judge is a network call; past this the plan is served unscored.',
+        keywords=('judge timeout', 'typesafe timeout', 'slow judge'),
+    ),
+
     # ── Data ─────────────────────────────────────────────────────────
     Setting(
         key='data.export_format', label='Export format', group='Data', tier='simple',
@@ -797,6 +848,7 @@ GROUP_ICONS = {
     'Goals & habits': 'target',
     'Progress & charts': 'trending-up',
     'Local AI': 'sparkles',
+    'Coaching judge': 'badge-check',
     'Data': 'database',
     'Advanced': 'settings-2',
 }

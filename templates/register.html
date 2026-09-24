@@ -1,14 +1,14 @@
 {% extends "base.html" %}
 
-{% block title %}Create Account – FitTrack{% endblock %}
+{% block title %}Create account – FitTrack{% endblock %}
 
 {% block content %}
 <div class="auth-page">
     <div class="auth-container">
         <div class="auth-card">
             <div class="auth-header">
-                <h1 style="display:flex;align-items:center;justify-content:center;gap:8px;"><i class="icon-4xl icon-primary" data-lucide="zap" ></i> FitTrack</h1>
-                <p>Create your account and start tracking your training.</p>
+                <h1>Create an account</h1>
+                <p>Guest progress lives in this browser only. An account keeps it.</p>
             </div>
 
             <form method="POST" action="{{ url_for('register') }}" class="auth-form" id="reg-form">
@@ -54,7 +54,7 @@
                     <div class="form-feedback" id="confirm-feedback">Passwords do not match.</div>
                 </div>
 
-                <button type="submit" class="btn btn-primary btn-full btn-lg" id="reg-btn">Create Account →</button>
+                <button type="submit" class="btn btn-primary btn-full btn-lg" id="reg-btn">Create account</button>
             </form>
 
             <div class="auth-footer">

@@ -10,23 +10,29 @@
 {% set kpis = settings['dashboard.kpis'] %}
 <div class="dashboard">
 
-    <!-- Hero -->
+    <!-- Header: the greeting setting picks the eyebrow line, the headline
+         is the day, and the subtitle is real numbers from progress_data. -->
     <div class="hero-section">
         {% if settings['dashboard.greeting'] == 'name' %}
-        <p class="hero-greeting">Welcome back{% if session.get('username') %}, <strong>{{ session.get('username')
-                }}</strong>{% endif %}!</p>
+        <p class="hero-greeting">Welcome back{% if session.get('username') %}, {{ session.get('username') }}{% endif %}</p>
         {% elif settings['dashboard.greeting'] == 'time' %}
-        <p class="hero-greeting" id="time-greeting">Hello!</p>
+        <p class="hero-greeting" id="time-greeting">Hello</p>
         {% endif %}
-        <h1>Your Training Dashboard</h1>
-        <p class="subtitle">Track progress, plan sessions, and hit your goals.</p>
+        <h1>{% if rest_day_today %}Rest day{% elif today_session %}{{ today_session.name }}{% else %}Nothing planned yet{% endif %}</h1>
+        <p class="subtitle">
+            {%- set streak = progress_data.current_streak or 0 -%}
+            {%- set total = progress_data.total_sessions or 0 -%}
+            {%- if total == 0 -%}
+            No sessions logged. The first one starts the streak.
+            {%- else -%}
+            {{ streak }}-day streak, {{ total }} session{{ '' if total == 1 else 's' }} and {{ progress_data.total_minutes or 0 }} minutes logged.
+            {%- endif -%}
+        </p>
         <div class="hero-actions">
             <a href="{{ url_for('training_session') }}" class="btn-hero-primary">
-                <i class="icon-lg" data-lucide="play"></i> Start Session
+                <i class="icon-lg" data-lucide="play"></i> Start a session
             </a>
-            <a href="{{ url_for('planner') }}" class="btn-hero-outline">
-                <i class="icon-lg" data-lucide="calendar"></i> Plan Workout
-            </a>
+            <a href="{{ url_for('planner') }}" class="btn-hero-outline">Build a custom workout</a>
         </div>
         <div class="hero-date">
             <span class="day" id="hero-day"></span>
@@ -38,45 +44,39 @@
     {% if kpis %}
     <div class="kpi-grid">
         {% if 'exercises' in kpis %}
-        <div class="kpi-card slide-up" style="animation-delay: 0.1s;">
-            <i class="icon-3xl icon-primary" data-lucide="dumbbell" style="margin-bottom:10px;"></i>
+        <div class="kpi-card">
             <div class="kpi-value">{{ progress_data.total_exercises or 0 }}</div>
-            <div class="kpi-label">Exercises Completed</div>
+            <div class="kpi-label">Exercises completed</div>
         </div>
         {% endif %}
         {% if 'avg_time' in kpis %}
-        <div class="kpi-card slide-up" style="animation-delay: 0.15s;">
-            <i class="icon-3xl icon-primary" data-lucide="timer" style="margin-bottom:10px;"></i>
-            <div class="kpi-value">{{ progress_data.avg_session_length or 0 }}<span style="font-size:1rem;">m</span></div>
-            <div class="kpi-label">Avg Session Time</div>
+        <div class="kpi-card">
+            <div class="kpi-value">{{ progress_data.avg_session_length or 0 }}<span class="kpi-unit">min</span></div>
+            <div class="kpi-label">Average session</div>
         </div>
         {% endif %}
         {% if 'streak' in kpis %}
-        <div class="kpi-card slide-up" style="animation-delay: 0.2s;">
-            <i class="icon-3xl icon-danger" data-lucide="flame" style="margin-bottom:10px;"></i>
+        <div class="kpi-card">
             <div class="kpi-value">{{ progress_data.current_streak or 0 }}</div>
-            <div class="kpi-label">Day Streak</div>
+            <div class="kpi-label">Day streak</div>
         </div>
         {% endif %}
         {% if 'sessions' in kpis %}
-        <div class="kpi-card slide-up" style="animation-delay: 0.25s;">
-            <i class="icon-3xl icon-success" data-lucide="trending-up" style="margin-bottom:10px;"></i>
+        <div class="kpi-card">
             <div class="kpi-value">{{ progress_data.total_sessions or 0 }}</div>
-            <div class="kpi-label">Total Sessions</div>
+            <div class="kpi-label">Sessions</div>
         </div>
         {% endif %}
         {% if 'minutes' in kpis %}
-        <div class="kpi-card slide-up" style="animation-delay: 0.3s;">
-            <i class="icon-3xl icon-primary" data-lucide="clock" style="margin-bottom:10px;"></i>
-            <div class="kpi-value">{{ progress_data.total_minutes or 0 }}<span style="font-size:1rem;">m</span></div>
-            <div class="kpi-label">Total Minutes</div>
+        <div class="kpi-card">
+            <div class="kpi-value">{{ progress_data.total_minutes or 0 }}<span class="kpi-unit">min</span></div>
+            <div class="kpi-label">Minutes</div>
         </div>
         {% endif %}
         {% if 'goal' in kpis and progress_data.goal and progress_data.goal.enabled %}
-        <div class="kpi-card slide-up" style="animation-delay: 0.35s;">
-            <i class="icon-3xl icon-success" data-lucide="target" style="margin-bottom:10px;"></i>
-            <div class="kpi-value">{{ progress_data.goal.sessions_pct }}<span style="font-size:1rem;">%</span></div>
-            <div class="kpi-label">Weekly Goal</div>
+        <div class="kpi-card">
+            <div class="kpi-value">{{ progress_data.goal.sessions_pct }}<span class="kpi-unit">%</span></div>
+            <div class="kpi-label">Weekly goal</div>
         </div>
         {% endif %}
     </div>
@@ -87,17 +87,17 @@
 
         {% if 'today' in cards %}
         <!-- Today's Session (left, wide) -->
-        <div class="today-session-card" style="animation-delay:0.2s">
+        <div class="today-session-card">
             <div class="section-heading">
-                <h2><i data-lucide="target"></i> Today's Session</h2>
-                <a href="{{ url_for('planner') }}">Custom plan →</a>
+                <h2>Today's session</h2>
+                <a href="{{ url_for('planner') }}">Custom plan</a>
             </div>
             {% if rest_day_today %}
             <h3 style="font-family:var(--font-head);font-size:1.3rem;color:var(--text);margin-bottom:8px;">
                 Planned rest day
             </h3>
             <p style="color:var(--text-muted);margin-bottom:14px;">
-                {{ rest_day_today }} is one of your rest days, so nothing is scheduled — and your
+                {{ rest_day_today }} is one of your rest days, so nothing is scheduled and your
                 streak is safe. Feel like moving anyway? A light session never hurts.
             </p>
             <a href="{{ url_for('planner') }}" class="btn btn-outline">Plan a light session</a>
@@ -119,44 +119,38 @@
             <button id="start-today-btn"
                 onclick="startTodaySession({{ today_session.name | tojson }}, {{ today_session.duration | tojson }}, {{ today_session.difficulty | tojson }}, {{ today_session.focus | tojson }})"
                 class="btn btn-primary" style="display:flex;align-items:center;gap:8px;justify-content:center;">
-                <i class="icon-lg icon-fill" data-lucide="play" ></i> Start Session
+                <i class="icon-lg icon-fill" data-lucide="play" ></i> Start session
             </button>
             {% else %}
-            <p style="color:var(--text-muted);margin-bottom:16px;">No session planned for today. Create a custom
-                workout!</p>
-            <a href="{{ url_for('planner') }}" class="btn btn-primary">Plan Workout</a>
+            <p style="color:var(--text-muted);margin-bottom:16px;">No session planned for today. Build one in the planner.</p>
+            <a href="{{ url_for('planner') }}" class="btn btn-primary">Open planner</a>
             {% endif %}
         </div>
         {% endif %}
 
         {% if 'quick_actions' in cards %}
         <!-- Quick Actions (right, narrow) -->
-        <div class="dashboard-card slide-up" style="animation-delay: 0.35s;">
-            <div class="dashboard-card-header">
-                <h2><i data-lucide="zap"></i> Quick Actions</h2>
+        <div class="card">
+            <div class="section-heading">
+                <h2>Go to</h2>
             </div>
-            <div class="quick-actions-grid">
+            <div class="quick-actions-list">
                 <a href="{{ url_for('planner') }}" class="quick-action-btn">
-                    <i class="icon-xl icon-primary" data-lucide="calendar" style="margin-bottom:8px;"></i>
-                    Plan Session
+                    <i class="icon-lg" data-lucide="calendar"></i> Planner
                 </a>
                 <a href="{{ url_for('library') }}" class="quick-action-btn">
-                    <i class="icon-xl icon-primary" data-lucide="library" style="margin-bottom:8px;"></i>
-                    Library
+                    <i class="icon-lg" data-lucide="library"></i> Library
                 </a>
                 <a href="{{ url_for('progress') }}" class="quick-action-btn">
-                    <i class="icon-xl icon-primary" data-lucide="trending-up" style="margin-bottom:8px;"></i>
-                    View Progress
+                    <i class="icon-lg" data-lucide="trending-up"></i> Progress
                 </a>
                 <a href="{{ url_for('settings_page') }}" class="quick-action-btn">
-                    <i class="icon-xl icon-primary" data-lucide="settings" style="margin-bottom:8px;"></i>
-                    Settings
+                    <i class="icon-lg" data-lucide="settings"></i> Settings
                 </a>
             </div>
             {% if not session.get('username') %}
             <div class="divider"></div>
-            <a href="{{ url_for('login') }}" class="btn btn-primary btn-full" style="margin-top:4px;">Login to Save
-                Progress</a>
+            <a href="{{ url_for('login') }}" class="btn btn-primary btn-full" style="margin-top:4px;">Log in to save progress</a>
             {% endif %}
         </div>
         {% endif %}
@@ -164,10 +158,10 @@
         {% if 'goals' in cards and progress_data.goal and progress_data.goal.enabled %}
         {% set goal = progress_data.goal %}
         <!-- Weekly goal -->
-        <div class="card full-width slide-up">
+        <div class="card full-width">
             <div class="section-heading">
-                <h2>This Week's Goal</h2>
-                <a href="{{ url_for('settings_page') }}#focus=goals.weekly_sessions">Adjust →</a>
+                <h2>This week's goal</h2>
+                <a href="{{ url_for('settings_page') }}#focus=goals.weekly_sessions">Adjust</a>
             </div>
             <div class="goal-card">
                 {% if goal.target_sessions %}
@@ -188,7 +182,7 @@
                     {% if goal.target_sessions %}
                     <p style="font-size:0.9rem;color:var(--text);">
                         <strong>{{ goal.sessions }}</strong> of {{ goal.target_sessions }} sessions this week
-                        {% if goal.sessions_pct >= 100 %} — goal hit!{% endif %}
+                        {% if goal.sessions_pct >= 100 %}. Goal hit.{% endif %}
                     </p>
                     {% endif %}
                     {% if goal.target_minutes %}
@@ -203,9 +197,9 @@
 
         {% if 'saved' in cards %}
         <!-- Saved Workout Templates -->
-        <div class="card full-width slide-up" id="saved-workouts-card" style="display:none;">
+        <div class="card full-width" id="saved-workouts-card" style="display:none;">
             <div class="section-heading">
-                <h2>Saved Workout Templates</h2>
+                <h2>Saved workouts</h2>
             </div>
             <div class="saved-templates-grid" id="saved-templates-list">
                 <!-- Templates loaded via JS -->
@@ -215,9 +209,9 @@
 
         {% if 'heatmap' in cards %}
         <!-- Activity heatmap -->
-        <div class="card full-width slide-up">
+        <div class="card full-width">
             <div class="section-heading">
-                <h2>Last 12 Weeks</h2>
+                <h2>Last 12 weeks</h2>
             </div>
             <div class="heatmap" id="dash-heatmap"></div>
             <div class="heatmap-legend">
@@ -234,10 +228,10 @@
 
         {% if 'recent' in cards %}
         <!-- Recent Activity -->
-        <div class="card full-width" style="animation-delay:0.3s">
+        <div class="card full-width">
             <div class="section-heading">
-                <h2>Recent Activity</h2>
-                <a href="{{ url_for('progress') }}">See all →</a>
+                <h2>Recent sessions</h2>
+                <a href="{{ url_for('progress') }}">See all</a>
             </div>
             {% if recent_sessions %}
             <div class="activity-list">
@@ -255,7 +249,7 @@
             {% else %}
             <div class="no-sessions" style="text-align:center;padding:2rem;">
                 <i class="icon-5xl icon-muted" data-lucide="activity" style="margin:0 auto 12px auto;display:block;"></i>
-                <p>No sessions yet. Start your first workout!</p>
+                <p>No sessions yet. The first one goes here.</p>
             </div>
             {% endif %}
         </div>
@@ -281,8 +275,8 @@
         const greeting = document.getElementById('time-greeting');
         if (greeting) {
             const h = d.getHours();
-            greeting.textContent = h < 5 ? 'Up late?' : h < 12 ? 'Good morning!' :
-                                   h < 18 ? 'Good afternoon!' : 'Good evening!';
+            greeting.textContent = h < 5 ? 'Up late?' : h < 12 ? 'Good morning' :
+                                   h < 18 ? 'Good afternoon' : 'Good evening';
         }
 
         // Dates respect the units.date_format setting

@@ -11,19 +11,19 @@
             <div class="breadcrumb">
                 <a href="{{ url_for('index') }}">Home</a> › Library
             </div>
-            <h1>Exercise Library</h1>
-            <p>Browse all exercises across 5 training domains</p>
+            <h1>Exercise library</h1>
+            <p>Every exercise across the 5 training domains, filterable by domain, difficulty and equipment.</p>
         </div>
         {% if session.get('username') %}
         <button class="btn btn-primary" onclick="toggleAddExerciseForm()">
-            <i class="icon-xl" data-lucide="plus"></i> Add Custom Exercise
+            <i class="icon-xl" data-lucide="plus"></i> Add an exercise
         </button>
         {% endif %}
     </div>
 
     <!-- Custom Exercise Form (Hidden by default) -->
     <div class="card hidden exercise-form-panel" id="add-exercise-panel">
-        <h3 style="font-family:var(--font-head);margin-bottom:16px;">Add Custom Exercise</h3>
+        <h3 style="font-family:var(--font-head);margin-bottom:16px;">Add an exercise</h3>
         <form id="add-exercise-form">
             <div class="exercise-form-grid-4">
                 <div class="form-group">
@@ -56,7 +56,7 @@
             <div class="form-group">
                 <label for="ex-equipment">Equipment needed (optional)</label>
                 <input type="text" id="ex-equipment" class="form-control"
-                       placeholder='e.g. Dumbbells — or "Wall or chair". Leave blank for none.'>
+                       placeholder='e.g. Dumbbells, or "Wall or chair". Leave blank for none.'>
             </div>
             <div class="exercise-form-grid-2">
                 <div class="form-group">
@@ -392,7 +392,7 @@
         });
         workout.total_duration = Math.round(workout.exercises.reduce((s, e) => s + (parseFloat(e.duration) || 0), 0) * 10) / 10;
         sessionStorage.setItem('currentWorkout', JSON.stringify(workout));
-        if (window.showToast) showToast(`"${ex.name}" added — ${workout.exercises.length} exercise(s), ~${workout.total_duration} min. Open Session to start.`, 'success');
+        if (window.showToast) showToast(`"${ex.name}" added. ${workout.exercises.length} exercise(s), ~${workout.total_duration} min. Open Session to start.`, 'success');
     }
 </script>
 {% endblock %}

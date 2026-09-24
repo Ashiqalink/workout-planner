@@ -12,8 +12,8 @@
 <div class="progress-page">
     <div class="page-header">
         <div class="breadcrumb"><a href="{{ url_for('index') }}">Home</a> › Progress</div>
-        <h1>Progress Tracking</h1>
-        <p>Monitor your training across all 5 domains</p>
+        <h1>Progress</h1>
+        <p>Sessions, minutes, streak and how your time splits across the 5 domains.</p>
     </div>
 
     <!-- KPI Stats -->
@@ -22,25 +22,21 @@
             <h3>Sessions</h3>
             <div class="stat-number">{{ progress_data.total_sessions or 0 }}</div>
             <div class="stat-sub">completed</div>
-            <div class="stat-icon"><i class="icon-4xl icon-primary" data-lucide="dumbbell" ></i></div>
         </div>
         <div class="stat-card">
             <h3>Minutes</h3>
             <div class="stat-number">{{ progress_data.total_minutes or 0 }}</div>
             <div class="stat-sub">total training</div>
-            <div class="stat-icon"><i class="icon-4xl icon-primary" data-lucide="timer" ></i></div>
         </div>
         <div class="stat-card">
             <h3>Streak</h3>
             <div class="stat-number">{{ progress_data.current_streak or 0 }}</div>
             <div class="stat-sub">day streak</div>
-            <div class="stat-icon"><i class="icon-4xl icon-danger" data-lucide="flame" ></i></div>
         </div>
         <div class="stat-card">
-            <h3>Avg Session</h3>
+            <h3>Average session</h3>
             <div class="stat-number">{{ progress_data.avg_session_length or 0 }}</div>
             <div class="stat-sub">minutes</div>
-            <div class="stat-icon"><i class="icon-4xl icon-primary" data-lucide="bar-chart-2" ></i></div>
         </div>
     </div>
 
@@ -49,7 +45,7 @@
     <div class="charts-grid">
         {% if 'domain' in charts %}
         <div class="chart-card">
-            <h2>Domain Distribution</h2>
+            <h2>Domain split</h2>
             <div class="chart-container-inner">
                 <canvas id="domainChart"></canvas>
             </div>
@@ -57,7 +53,7 @@
         {% endif %}
         {% if 'weekly' in charts %}
         <div class="chart-card">
-            <h2>Weekly Activity</h2>
+            <h2>Weekly activity</h2>
             <div class="chart-container-inner">
                 <canvas id="weeklyChart"></canvas>
             </div>
@@ -68,7 +64,7 @@
 
     {% if 'trend' in charts %}
     <div class="chart-card" style="margin-bottom:24px;">
-        <h2>Session Length Trend</h2>
+        <h2>Session length over time</h2>
         <div class="chart-container-inner">
             <canvas id="trendChart"></canvas>
         </div>
@@ -77,7 +73,7 @@
 
     {% if 'heatmap' in charts %}
     <div class="card" style="margin-bottom:24px;">
-        <div class="section-heading"><h2>Activity Heatmap</h2></div>
+        <div class="section-heading"><h2>Activity heatmap</h2></div>
         <div class="heatmap" id="progress-heatmap"></div>
         <div class="heatmap-legend">
             <span>less</span>
@@ -95,7 +91,7 @@
     {% if settings['session.tracking_mode'] != 'timer' %}
     <div class="card" style="margin-bottom:24px;" id="records-card" hidden>
         <div class="section-heading">
-            <h2>Personal Bests</h2>
+            <h2>Personal bests</h2>
         </div>
         <div id="records-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;"></div>
     </div>
@@ -103,7 +99,7 @@
 
     <!-- Domain Progress Cards -->
     <div class="section-heading" style="margin-bottom:16px;">
-        <h2>Domain Breakdown</h2>
+        <h2>Domain breakdown</h2>
     </div>
     <div class="domain-cards-grid">
         {% set domains = [
@@ -115,22 +111,19 @@
         ] %}
         {% for key, icon, label in domains %}
         {% set d = progress_data[key] if progress_data[key] is defined else {} %}
-        <div class="domain-progress-card slide-up">
+        <div class="domain-progress-card">
             <div class="domain-header">
-                <span class="domain-icon"><i class="icon-2xl icon-primary" data-lucide="{{ icon }}" ></i></span>
                 <h3>{{ label }}</h3>
+                <span class="domain-week">Week {{ d.week or 1 }} of 4</span>
             </div>
             <div class="domain-stats">
-                <span class="domain-stat">Sessions: <span>{{ d.sessions or 0 }}</span></span>
-                <span class="domain-stat">Minutes: <span>{{ d.minutes or 0 }}</span></span>
+                <span class="domain-stat"><span>{{ d.sessions or 0 }}</span> sessions</span>
+                <span class="domain-stat"><span>{{ d.minutes or 0 }}</span> min</span>
             </div>
-            <div class="progress-bar progress-bar-lg">
-                <div class="progress-fill animated"
-                    style="--target-w:{{ [d.progress or 0, 100] | min }}%;width:{{ [d.progress or 0, 100] | min }}%">
+            <div class="progress-bar progress-bar-sm">
+                <div class="progress-fill"
+                    style="width:{{ [d.progress or 0, 100] | min }}%">
                 </div>
-            </div>
-            <div style="font-size:0.78rem;color:var(--text-light);margin-top:5px;text-align:right;">
-                Week {{ d.week or 1 }} of program
             </div>
         </div>
         {% endfor %}
@@ -138,7 +131,7 @@
 
     <!-- Recent Sessions -->
     <div class="section-heading" style="margin:28px 0 16px;">
-        <h2>Recent Sessions</h2>
+        <h2>Recent sessions</h2>
     </div>
     {% if recent_sessions %}
     <div class="sessions-list">
@@ -156,7 +149,7 @@
     {% else %}
     <div class="no-sessions">
         <i class="icon-5xl icon-muted" data-lucide="activity" style="margin-bottom:10px;"></i>
-        <p>No sessions recorded yet. <a href="{{ url_for('training_session') }}">Start your first workout →</a></p>
+        <p>No sessions recorded yet. <a href="{{ url_for('training_session') }}">Start your first workout</a></p>
     </div>
     {% endif %}
 

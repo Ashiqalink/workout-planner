@@ -3,179 +3,169 @@
 {% block title %}Training Planner – FitTrack{% endblock %}
 
 {% block content %}
-<div class="planner-page">        <div class="page-header">
+<div class="planner-page">
+    <div class="page-header">
         <div class="breadcrumb"><a href="{{ url_for('index') }}">Home</a> › Planner</div>
-        <h1>Training Planner</h1>
-        <p>Create a custom workout tailored to your goals and available time</p>
+        <h1>Planner</h1>
+        <p>Set the minutes and what to train. The engine fills the time from the library.</p>
     </div>
 
     <div class="planner-layout">
 
-        <!-- Form Panel -->
-        <div class="card" style="padding:32px;">
-            <h2
-                style="font-family:var(--font-head);font-size:1.2rem;font-weight:700;color:var(--text);margin-bottom:24px;">
-                Build Your Workout</h2>
+        <!-- Form column -->
+        <form id="workout-form" class="plan-form">
 
-            <form id="workout-form">
-                <!-- Domain icon-cards -->
-                <div class="form-group">
-                    <label style="margin-bottom:12px;display:block;">Training Domains <span
-                            style="font-weight:400;color:var(--text-muted)">(select all that apply)</span></label>
-                    <div class="domain-cards">
-                        {# checked state comes from workout.default_domains, so the
-                           planner opens preloaded with the user's usual focus #}
-                        {% for value, label in [('Strength','Strength'), ('Speed & Mobility','Speed'),
-                                                ('Endurance','Endurance'), ('Agility','Agility'),
-                                                ('Cognitive','Cognitive')] %}
-                        <label class="domain-card {{ 'selected' if value in settings['workout.default_domains'] }}">
-                            <input type="checkbox" name="domains" value="{{ value }}"
-                                   {{ 'checked' if value in settings['workout.default_domains'] }}>
-                            <div class="domain-card-label">{{ label }}</div>
-                        </label>
-                        {% endfor %}
+            <fieldset class="plan-field">
+                <legend>Train</legend>
+                <div class="domain-toggles">
+                    {# checked state comes from workout.default_domains, so the
+                       planner opens preloaded with the user's usual focus #}
+                    {% for value, label in [('Strength','Strength'), ('Speed & Mobility','Speed & mobility'),
+                                            ('Endurance','Endurance'), ('Agility','Agility'),
+                                            ('Cognitive','Cognitive')] %}
+                    <label class="domain-toggle">
+                        <input type="checkbox" name="domains" value="{{ value }}"
+                               {{ 'checked' if value in settings['workout.default_domains'] }}>
+                        <span>{{ label }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+            </fieldset>
+
+            <div class="plan-field plan-minutes">
+                <label for="duration">Minutes</label>
+                <div class="minutes-figure" aria-hidden="true">
+                    <span id="duration-val">{{ settings['workout.default_duration'] }}</span><span class="minutes-unit">min</span>
+                </div>
+                <input type="range" id="duration" name="duration" min="5" max="120" step="5"
+                       value="{{ settings['workout.default_duration'] }}"
+                       oninput="document.getElementById('duration-val').textContent=this.value; drawEmptyTicks();">
+                <div class="range-ends"><span>5</span><span>120</span></div>
+            </div>
+
+            <fieldset class="plan-field">
+                <legend>Level</legend>
+                <div class="level-toggles">
+                    {% for value, label in [('beginner','Beginner'), ('intermediate','Intermediate'),
+                                            ('advanced','Advanced')] %}
+                    <label class="level-toggle">
+                        <input type="radio" name="difficulty" value="{{ value }}"
+                               {{ 'checked' if settings['workout.default_difficulty'] == value }}>
+                        <span>{{ label }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+            </fieldset>
+
+            <div class="plan-field">
+                <label for="goal">Goal <span class="plan-optional">optional</span></label>
+                <textarea id="goal" name="goal" class="form-control" rows="2"
+                    placeholder="Low impact for a sore back, or extra shoulder stability"></textarea>
+                {% if not (settings['ai.enabled'] and settings['ai.workout_generation']) %}
+                <p class="plan-note">
+                    Local AI is off, so written goals are ignored. Turn it on under
+                    <a href="{{ url_for('settings_page') }}">Settings, Local AI</a>.
+                </p>
+                {% endif %}
+            </div>
+
+            {# The settings that quietly shape this workout, said once in prose. #}
+            {% set mods = [] %}
+            {% if settings['workout.include_warmup'] %}{% set _ = mods.append(settings['workout.warmup_minutes'] ~ ' min warm-up') %}{% endif %}
+            {% if settings['workout.include_cooldown'] %}{% set _ = mods.append(settings['workout.cooldown_minutes'] ~ ' min cool-down') %}{% endif %}
+            {% if settings['workout.variety'] == 'strict' %}{% set _ = mods.append('no recent repeats') %}{% endif %}
+            {% if mods or settings['workout.exclude_keywords'] %}
+            <p class="plan-modifiers" id="active-modifiers">
+                {% if mods %}Includes {{ mods | join(', ') }}.{% endif %}
+                {% if settings['workout.exclude_keywords'] %}Excluding {{ settings['workout.exclude_keywords'] }}.{% endif %}
+                <a href="{{ url_for('settings_page') }}">Change</a>
+            </p>
+            {% endif %}
+
+            <button type="submit" class="btn btn-primary btn-lg plan-generate" id="generate-btn">
+                Generate workout
+            </button>
+        </form>
+
+        <!-- Preview column -->
+        <section class="plan-preview" aria-live="polite">
+
+            <!-- Empty: the ruler, waiting -->
+            <div id="preview-placeholder" class="plan-empty">
+                <div class="timeline is-empty">
+                    <div class="timeline-track"></div>
+                    <div class="timeline-ticks" id="empty-ticks"></div>
+                </div>
+                <p>Nothing planned yet. Set the minutes, then generate.</p>
+            </div>
+
+            <div id="workout-preview" class="hidden">
+                <div class="plan-preview-head">
+                    <h2>Your workout</h2>
+                    <div class="plan-preview-actions">
+                        <button class="btn btn-sm btn-ghost" id="regen-btn" onclick="regenerateWorkout()">
+                            <i class="icon-md" data-lucide="refresh-cw"></i> Regenerate</button>
+                        <button class="btn btn-sm btn-primary" id="start-btn" onclick="startWorkout()">
+                            <i class="icon-md icon-fill" data-lucide="play"></i> Start workout</button>
                     </div>
                 </div>
 
-                <!-- Duration slider -->
-                <div class="form-group">
-                    <label>Duration</label>
-                    <div class="duration-display">
-                        <span class="duration-value" id="duration-val">{{ settings['workout.default_duration'] }}</span>
-                        <span class="duration-unit">min</span>
+                <div class="timeline" id="timeline">
+                    <div class="timeline-track" id="timeline-track"></div>
+                    <div class="timeline-ticks" id="timeline-ticks"></div>
+                </div>
+
+                <!-- Summary is engine-computed, never model prose -->
+                <p class="plan-summary">
+                    <span id="total-exercises">0</span> exercises,
+                    <span id="total-duration">0</span> min,
+                    <span id="workout-difficulty">—</span>.
+                    <span id="engine-badge"></span>
+                </p>
+                <div id="ai-explanation-box" class="plan-explain">
+                    <p id="ai-explanation-text"></p>
+                    <p id="applied-settings-text" class="plan-applied"></p>
+                </div>
+
+                <ol class="schedule" id="exercises-list"></ol>
+
+                <div class="save-plan" id="save-workout-box">
+                    <label for="save-workout-name">Keep this plan</label>
+                    <div class="save-plan-row">
+                        <input type="text" id="save-workout-name" class="form-control" placeholder="Name it, e.g. Tuesday legs">
+                        <button class="btn btn-outline" onclick="saveWorkoutTemplate()">Save</button>
                     </div>
-                    <div class="range-slider">
-                        <input type="range" id="duration" name="duration" min="5" max="120" step="5"
-                            value="{{ settings['workout.default_duration'] }}"
-                            oninput="document.getElementById('duration-val').textContent=this.value">
-                        <div class="range-label"><span>5 min</span><span>120 min</span></div>
-                    </div>
-                </div>
-
-                <!-- Difficulty -->
-                <div class="form-group">
-                    <label for="difficulty">Difficulty Level</label>
-                    <select id="difficulty" name="difficulty" class="form-control" required>
-                        {% for value, label in [('beginner','Beginner'), ('intermediate','Intermediate'),
-                                                ('advanced','Advanced')] %}
-                        <option value="{{ value }}"
-                                {{ 'selected' if settings['workout.default_difficulty'] == value }}>{{ label }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-
-
-                <!-- Custom Goal (LLM Prompt) -->
-                <div class="form-group">
-                    <label for="goal">Custom Training Goal <span
-                            style="font-weight:400;color:var(--text-muted)">(optional)</span></label>
-                    <textarea id="goal" name="goal" class="form-control" rows="3"
-                        placeholder="e.g. Focus on dynamic stability, target weak shoulder blades, low impact for back pain"></textarea>
-                    {% if not (settings['ai.enabled'] and settings['ai.workout_generation']) %}
-                    <p style="font-size:0.78rem;color:var(--text-muted);margin-top:6px;">
-                        The local AI is off, so free-text goals are ignored — the rule-based engine
-                        uses your domains, duration and settings. Turn it on under
-                        <a href="{{ url_for('settings_page') }}">Settings → Local AI</a>.
-                    </p>
-                    {% endif %}
-                </div>
-
-                <!-- The settings that will quietly shape this workout -->
-                <div id="active-modifiers" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:18px;">
-                    {% if settings['workout.include_warmup'] %}
-                    <span class="session-meta-chip">{{ settings['workout.warmup_minutes'] }} min warm-up</span>
-                    {% endif %}
-                    {% if settings['workout.include_cooldown'] %}
-                    <span class="session-meta-chip">{{ settings['workout.cooldown_minutes'] }} min cool-down</span>
-                    {% endif %}
-                    {% if settings['workout.exclude_keywords'] %}
-                    <span class="session-meta-chip">excluding: {{ settings['workout.exclude_keywords'] }}</span>
-                    {% endif %}
-                    {% if settings['workout.variety'] == 'strict' %}
-                    <span class="session-meta-chip">no recent repeats</span>
-                    {% endif %}
-                </div>
-
-                <button type="submit" class="btn btn-primary btn-lg btn-full" id="generate-btn"
-                    style="display:flex;align-items:center;justify-content:center;gap:8px;">
-                    <i class="icon-lg icon-fill" data-lucide="zap"></i> Generate Workout
-                </button>
-            </form>
-        </div>
-
-        <!-- Preview Panel -->
-        <div id="workout-preview" class="workout-preview-panel hidden">
-            <div class="section-heading" style="margin-bottom:20px;">
-                <h2 style="font-family:var(--font-head);font-size:1.15rem;font-weight:700;">Your Workout</h2>
-                <button class="btn btn-sm btn-ghost" id="regen-btn" onclick="regenerateWorkout()"
-                    style="display:flex;align-items:center;gap:6px;"><i class="icon-md" data-lucide="refresh-cw"></i>
-                    Regenerate</button>
-            </div>
-
-            <div style="display:flex;gap:10px;margin-bottom:20px;align-items:center;flex-wrap:wrap;">
-                <button class="btn btn-sm btn-primary" id="start-btn" onclick="startWorkout()"
-                    style="display:flex;align-items:center;gap:6px;"><i class="icon-md icon-fill"
-                        data-lucide="play"></i> Start Workout</button>
-                <span id="engine-badge"></span>
-            </div>
-
-            <!-- Workout summary (engine-computed, never model prose) -->
-            <div class="ai-explanation-box" id="ai-explanation-box">
-                <h4 class="ai-explanation-header">
-                    <i class="icon-md" data-lucide="sparkles"></i> Workout Summary
-                </h4>
-                <p id="ai-explanation-text" class="ai-explanation-text"></p>
-                <p id="applied-settings-text" style="font-size:0.78rem;color:var(--text-muted);margin-top:8px;"></p>
-            </div>
-
-            <div class="workout-preview-stats">
-                <div class="wp-stat">
-                    <div class="wp-stat-number" id="total-exercises">0</div>
-                    <div class="wp-stat-label">Exercises</div>
-                </div>
-                <div class="wp-stat">
-                    <div class="wp-stat-number" id="total-duration">0</div>
-                    <div class="wp-stat-label">Minutes</div>
-                </div>
-                <div class="wp-stat">
-                    <div class="wp-stat-number" id="workout-difficulty">—</div>
-                    <div class="wp-stat-label">Level</div>
+                    <p class="plan-note">Saved plans reopen from the dashboard.</p>
                 </div>
             </div>
-
-            <div class="exercises-list" id="exercises-list"></div>
-
-            <!-- Save Workout Template Action -->
-            <div class="save-template-box" id="save-workout-box">
-                <h4 class="save-template-header">
-                    <i class="icon-md" data-lucide="save"></i> Save Workout Template
-                </h4>
-                <p class="save-template-desc">Add this workout session to your library templates to reload it directly from your Dashboard.</p>
-                <div class="save-template-inputs">
-                    <input type="text" id="save-workout-name" class="form-control save-template-input" placeholder="e.g. Knee Rehab Session">
-                    <button class="btn btn-sm btn-outline" onclick="saveWorkoutTemplate()">Save Template</button>
-                </div>
-            </div>
-
-            <button class="btn btn-primary btn-full planner-preview-play-btn" onclick="startWorkout()">Start Workout</button>
-        </div>
-        <!-- Placeholder when no workout generated yet -->
-        <div id="preview-placeholder" class="card-flat">
-            <p>Configure your workout on the left<br>and click <strong>Generate</strong> to see a preview</p>
-        </div>
+        </section>
 
     </div>
 </div>
 {% endblock %}
 {% block scripts %}
 <script>
-    // Domain card toggle
-    document.querySelectorAll('.domain-card').forEach(card => {
-        const cb = card.querySelector('input[type="checkbox"]');
-        cb.addEventListener('change', function () {
-            card.classList.toggle('selected', this.checked);
-        });
-    });
+    // Tick marks along the ruler every 5 min (10 past the hour); every
+    // other one is taller and labelled, and the end always is.
+    function drawEmptyTicks() {
+        const minutes = parseInt(document.getElementById('duration').value, 10);
+        drawTicks(document.getElementById('empty-ticks'), minutes);
+    }
+    function drawTicks(host, minutes) {
+        if (!host) return;
+        host.innerHTML = '';
+        const step = minutes > 60 ? 10 : 5;
+        const last = Math.floor(minutes / step) * step;
+        for (let m = 0; m <= minutes; m += step) {
+            const major = m % (step * 2) === 0 || m === last;
+            const t = document.createElement('span');
+            t.className = 'tick' + (major ? ' tick-major' : '');
+            t.style.left = (m / minutes * 100) + '%';
+            if (major) t.dataset.label = m;
+            host.appendChild(t);
+        }
+    }
+    drawEmptyTicks();
 
     document.getElementById('workout-form').addEventListener('submit', function (e) {
         e.preventDefault();
@@ -186,20 +176,20 @@
         const btn = document.getElementById('generate-btn');
         const domains = Array.from(document.querySelectorAll('input[name="domains"]:checked')).map(c => c.value);
         const duration = parseInt(document.getElementById('duration').value);
-        const difficulty = document.getElementById('difficulty').value;
+        const diffEl = document.querySelector('input[name="difficulty"]:checked');
+        const difficulty = diffEl ? diffEl.value : '';
         const goal = document.getElementById('goal').value;
 
         if (domains.length === 0) {
-            if (window.showToast) showToast('Select at least one training domain.', 'warning');
+            if (window.showToast) showToast('Pick at least one thing to train.', 'warning');
             return;
         }
         if (!difficulty) {
-            if (window.showToast) showToast('Please select a difficulty level.', 'warning');
+            if (window.showToast) showToast('Pick a level.', 'warning');
             return;
         }
 
-        const textNode = Array.from(btn.childNodes).find(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim());
-        if (textNode) textNode.textContent = ' Generating…';
+        btn.textContent = 'Generating…';
         btn.disabled = true;
 
         fetch('/api/generate-workout', {
@@ -212,15 +202,19 @@
                 if (data.success) {
                     displayWorkout(data);
                 } else {
-                    if (window.showToast) showToast('Error: ' + (data.error || 'Unknown'), 'error');
+                    if (window.showToast) showToast('Could not build a plan: ' + (data.error || 'unknown error'), 'error');
                 }
             })
             .catch(() => { if (window.showToast) showToast('Network error. Try again.', 'error'); })
             .finally(() => {
-                const tNode = Array.from(btn.childNodes).find(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim());
-                if (tNode) tNode.textContent = ' Generate Workout';
+                btn.textContent = 'Generate workout';
                 btn.disabled = false;
             });
+    }
+
+    function fmtClock(minutes) {
+        const s = Math.round(minutes * 60);
+        return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
     }
 
     function displayWorkout(workout) {
@@ -228,54 +222,77 @@
         const preview = document.getElementById('workout-preview');
         preview.classList.remove('hidden');
 
+        const total = parseFloat(workout.total_duration) || 0;
         document.getElementById('total-exercises').textContent = workout.exercises.length;
-        document.getElementById('total-duration').textContent = parseFloat(workout.total_duration).toFixed(1);
-        const diffMap = { beginner: '', intermediate: '', advanced: '' };
-        const dKey = (workout.difficulty || '').toLowerCase();
-        document.getElementById('workout-difficulty').textContent = (diffMap[dKey] || '') + ' ' + (workout.difficulty || '—');
+        document.getElementById('total-duration').textContent = total.toFixed(1);
+        document.getElementById('workout-difficulty').textContent = workout.difficulty || '—';
 
         // Which engine answered — the AI or the built-in rules. Honest labelling
         // is the ai.fallback_notice setting's whole purpose.
         const badge = document.getElementById('engine-badge');
         if (workout.engine === 'ai') {
-            badge.innerHTML = '<span class="engine-badge engine-ai">built by your local model</span>';
+            badge.textContent = 'Built by your local model.';
         } else if (FT.get('ai.fallback_notice', true) &&
                    FT.get('ai.enabled', true) && FT.get('ai.workout_generation', false)) {
-            badge.innerHTML = '<span class="engine-badge engine-rules">built by the rule engine (model unavailable)</span>';
+            badge.textContent = 'Built by the rule engine; the model was unavailable.';
         } else {
-            badge.innerHTML = '<span class="engine-badge engine-rules">built by the rule engine</span>';
+            badge.textContent = 'Built by the rule engine.';
         }
 
+        // The timeline: every exercise is a segment as wide as the minutes it
+        // takes, so the plan is read against the budget that was dialed in.
+        const track = document.getElementById('timeline-track');
+        track.innerHTML = '';
+        const scale = Math.max(total, parseInt(document.getElementById('duration').value, 10) || total);
+        let cursor = 0;
+        workout.exercises.forEach((ex, i) => {
+            const mins = parseFloat(ex.duration) || 0;
+            const seg = document.createElement('span');
+            seg.className = 'seg';
+            seg.style.left = (cursor / scale * 100) + '%';
+            seg.style.width = (mins / scale * 100) + '%';
+            seg.style.setProperty('--i', i);
+            seg.title = ex.name + ', ' + fmtClock(mins) + ' min';
+            track.appendChild(seg);
+            cursor += mins;
+        });
+        drawTicks(document.getElementById('timeline-ticks'), scale);
+        const tl = document.getElementById('timeline');
+        tl.classList.remove('is-drawn');
+        void tl.offsetWidth;                // restart the grow-in on regenerate
+        tl.classList.add('is-drawn');
+
+        // The schedule: start time, name, then sets × seconds.
         const list = document.getElementById('exercises-list');
         list.innerHTML = '';
-        workout.exercises.forEach((ex, i) => {
-            const item = document.createElement('div');
-            item.className = 'exercise-item';
-            item.innerHTML = `
-            <div class="exercise-number">${i + 1}</div>
-            <div class="exercise-info">
-                <h4>${escapeHtml(ex.name)}</h4>
-                <p>${escapeHtml(ex.category)} &bull; ${Math.round(ex.duration * 60)}s</p>
-            </div>
-            <span class="badge badge-primary">${escapeHtml(ex.difficulty)}</span>
-        `;
-            list.appendChild(item);
+        let at = 0;
+        workout.exercises.forEach((ex) => {
+            const sets = Math.max(1, parseInt(ex.sets, 10) || 1);
+            const secs = Math.round(ex.set_seconds || (parseFloat(ex.duration) * 60) / sets);
+            const row = document.createElement('li');
+            row.className = 'sched-row';
+            row.innerHTML = `
+                <span class="sched-at">${fmtClock(at)}</span>
+                <span class="sched-body">
+                    <span class="sched-name">${escapeHtml(ex.name)}</span>
+                    <span class="sched-meta">${escapeHtml(ex.category)}, ${sets > 1 ? sets + ' sets of ' : ''}${secs} s</span>
+                </span>
+                <span class="sched-level">${escapeHtml(ex.difficulty || '')}</span>`;
+            list.appendChild(row);
+            at += parseFloat(ex.duration) || 0;
         });
 
-        const aiBox = document.getElementById('ai-explanation-box');
         const aiText = document.getElementById('ai-explanation-text');
-        if (workout.explanation) {
-            aiBox.style.display = 'block';
-            aiText.textContent = workout.explanation;
-        } else {
-            aiBox.style.display = 'none';
-        }
+        aiText.textContent = workout.explanation || '';
+        aiText.hidden = !workout.explanation;
         const appliedEl = document.getElementById('applied-settings-text');
         appliedEl.textContent = (workout.applied_settings && workout.applied_settings.length)
-            ? 'Your settings shaped this: ' + workout.applied_settings.join(' · ')
+            ? 'Your settings shaped this: ' + workout.applied_settings.join('; ') + '.'
             : '';
 
-        if (window.lucide) lucide.createIcons({ root: aiBox });
+        if (window.lucide) lucide.createIcons({ root: preview });
+        // Single-column widths put the plan below the form; bring it up.
+        if (window.innerWidth <= 900) preview.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
         sessionStorage.setItem('currentWorkout', JSON.stringify(workout));
     }
@@ -286,12 +303,12 @@
     function saveWorkoutTemplate() {
         const stored = sessionStorage.getItem('currentWorkout');
         if (!stored) {
-            if (window.showToast) showToast('No workout to save.', 'error');
+            if (window.showToast) showToast('Generate a plan first.', 'error');
             return;
         }
         const workoutName = document.getElementById('save-workout-name').value.trim();
         if (!workoutName) {
-            if (window.showToast) showToast('Please enter a name for the workout.', 'warning');
+            if (window.showToast) showToast('Give the plan a name.', 'warning');
             return;
         }
 
@@ -311,14 +328,14 @@
             .then(r => r.json())
             .then(data => {
                 if (data.success) {
-                    if (window.showToast) showToast('Workout template saved successfully!', 'success');
+                    if (window.showToast) showToast('Saved. Find it on the dashboard.', 'success');
                     document.getElementById('save-workout-name').value = '';
                 } else {
-                    if (window.showToast) showToast('Error: ' + data.error, 'error');
+                    if (window.showToast) showToast('Could not save: ' + data.error, 'error');
                 }
             })
             .catch(() => {
-                if (window.showToast) showToast('Network error saving workout template.', 'error');
+                if (window.showToast) showToast('Network error. Plan not saved.', 'error');
             });
     }
 </script>

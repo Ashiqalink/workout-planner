@@ -21,6 +21,17 @@ import app as app_module  # noqa: E402  (import after DATABASE_PATH is set)
 CSRF = 'test-csrf-token'
 
 
+@pytest.fixture(autouse=True)
+def no_typesafe_key(monkeypatch):
+    """No key, no socket, no memory between tests: the judge never leaves the process."""
+    import workout_judge
+    monkeypatch.delenv('TYPESAFE_API_KEY', raising=False)
+    monkeypatch.setattr(workout_judge, '_post',
+                        lambda payload, timeout: (_ for _ in ()).throw(
+                            AssertionError('test reached the network')))
+    workout_judge._cache.clear()
+
+
 @pytest.fixture(scope='session')
 def flask_app():
     app_module.app.config.update(TESTING=True)

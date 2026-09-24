@@ -5,75 +5,65 @@
 {% block content %}
 <div class="session-page">
 
-    <!-- Header bar -->
-    <div class="session-header" id="header-bar">
-        <div class="session-header-title" id="session-title"><i class="icon-xl" data-lucide="activity" ></i> Training Session</div>
-        <div class="session-header-timer" id="session-timer">00:00</div>
-        <div class="session-header-actions" id="header-actions">
-            <button class="btn btn-sm btn-secondary" id="pause-btn" onclick="pauseSession()" style="display:none;align-items:center;gap:6px;"><i class="icon-md icon-fill" data-lucide="pause" ></i> Pause</button>
-            <button class="btn btn-sm btn-primary" id="resume-btn" onclick="resumeSession()" style="display:none;align-items:center;gap:6px;"><i class="icon-md icon-fill" data-lucide="play" ></i> Resume</button>
-            <button class="btn btn-sm btn-danger" id="stop-btn" onclick="showStopModal()" style="display:none;align-items:center;gap:6px;"><i class="icon-md icon-fill" data-lucide="square" ></i> Stop</button>
+    <!-- Strip: what you're doing, how long you've been at it, the two controls -->
+    <div class="session-strip" id="header-bar">
+        <div class="session-strip-title" id="session-title">Training session</div>
+        <div class="session-strip-clock" id="session-timer">00:00</div>
+        <div class="session-strip-actions" id="header-actions">
+            <button class="btn btn-sm btn-secondary" id="pause-btn" onclick="pauseSession()" style="display:none;"><i class="icon-md icon-fill" data-lucide="pause"></i> Pause</button>
+            <button class="btn btn-sm btn-primary" id="resume-btn" onclick="resumeSession()" style="display:none;"><i class="icon-md icon-fill" data-lucide="play"></i> Resume</button>
+            <button class="btn btn-sm btn-danger" id="stop-btn" onclick="showStopModal()" style="display:none;"><i class="icon-md icon-fill" data-lucide="square"></i> Stop</button>
         </div>
     </div>
 
-    <!-- Progress bar -->
-    <div class="session-progress-bar" id="session-progress-wrap" style="display:none;">
-        <div class="session-progress-fill" id="session-progress" style="width:0%"></div>
+    <!-- The plan's timeline, now with a playhead -->
+    <div class="timeline session-timeline" id="session-progress-wrap" style="display:none;">
+        <div class="timeline-track" id="session-track"></div>
+        <div class="timeline-head" id="session-progress" style="left:0%" hidden></div>
     </div>
     <div class="session-progress-info" id="session-progress-info" style="display:none;">
-        <span id="progress-text">0% Complete</span>
-        <span id="exercise-progress">0 / 0 exercises</span>
+        <span id="progress-text">0% done</span>
+        <span id="exercise-progress">0 of 0 exercises</span>
     </div>
 
-    <!-- Session Layout -->
     <div class="session-layout" id="session-layout">
-        <!-- Main Panel -->
         <div id="main-panel">
-            <!-- Welcome screen -->
-            <div class="timer-card" id="welcome-screen">
-                <div class="welcome-screen">
-                    <i class="icon-5xl icon-primary" data-lucide="dumbbell" style="margin-bottom:16px;"></i>
-                    <h2 id="welcome-title">Loading workout…</h2>
-                    <p id="welcome-sub" style="color:var(--text-muted);margin-bottom:20px;"></p>
-                    <div class="workout-summary-chips" id="workout-chips"></div>
-                    <button class="btn btn-primary btn-lg" onclick="startSession()" id="start-btn"
-                        style="display:none;align-items:center;gap:8px;"><i class="icon-xl icon-fill" data-lucide="play" ></i> Start Workout</button>
-                    <div id="no-workout-actions" style="display:none;">
-                        <a href="/planner" class="btn btn-primary">Create Workout</a>
-                        <a href="/dashboard" class="btn btn-secondary" style="margin-left:8px;">Dashboard</a>
-                    </div>
+
+            <!-- Before start -->
+            <div class="stage" id="welcome-screen">
+                <h2 class="stage-title" id="welcome-title">Loading workout…</h2>
+                <p class="stage-sub" id="welcome-sub"></p>
+                <p class="stage-facts" id="workout-chips"></p>
+                <button class="btn btn-primary btn-lg" onclick="startSession()" id="start-btn" style="display:none;">
+                    <i class="icon-xl icon-fill" data-lucide="play"></i> Start workout</button>
+                <div class="stage-actions" id="no-workout-actions" style="display:none;">
+                    <a href="/planner" class="btn btn-primary">Open planner</a>
+                    <a href="/dashboard" class="btn btn-secondary">Dashboard</a>
                 </div>
             </div>
 
-            <!-- Exercise timer (hidden until started) -->
-            <div class="timer-card hidden" id="exercise-screen" style="position:relative;">
-                <!-- Get-ready countdown, drawn over the timer card -->
+            <!-- Exercise clock -->
+            <div class="stage stage-clock hidden" id="exercise-screen">
+                <!-- Get-ready countdown, drawn over the clock -->
                 <div class="prep-overlay" id="prep-overlay" hidden>
                     <div class="prep-label" id="prep-name"></div>
                     <div class="prep-count" id="prep-count">5</div>
                     <div class="prep-label">get ready</div>
                 </div>
 
-                <div class="session-progress-bar" style="margin-bottom:20px;">
-                    <div class="session-progress-fill" id="ex-progress" style="width:0%"></div>
+                <div class="clock-name" id="ex-name">—</div>
+                <div class="clock-meta" id="ex-meta"></div>
+
+                <div class="clock-face">
+                    <div class="clock-time" id="ex-timer">—</div>
+                    <div class="clock-label" id="ex-timer-label">remaining</div>
                 </div>
-                <div class="timer-exercise-name" id="ex-name">—</div>
-                <div class="timer-exercise-meta" id="ex-meta"></div>
-                <div class="timer-ring-wrap">
-                    <svg class="timer-ring-svg" viewBox="0 0 180 180">
-                        <circle class="timer-ring-bg" cx="90" cy="90" r="80"></circle>
-                        <circle class="timer-ring-fill" cx="90" cy="90" r="80" id="ring-fill"
-                            style="stroke-dasharray:502;stroke-dashoffset:0;"></circle>
-                    </svg>
-                    <div class="timer-center">
-                        <div class="timer-time" id="ex-timer">—</div>
-                        <div class="timer-label" id="ex-timer-label">remaining</div>
-                    </div>
+                <div class="clock-bar"><div class="clock-bar-fill" id="ring-fill"></div></div>
+
+                <div class="clock-controls">
+                    <button class="btn btn-secondary" id="skip-btn" onclick="skipCurrentExercise()"><i class="icon-md" data-lucide="skip-forward"></i> Skip</button>
                 </div>
-                <div class="timer-controls">
-                    <button class="btn btn-secondary" id="skip-btn" onclick="skipCurrentExercise()" style="display:flex;align-items:center;gap:6px;"><i class="icon-md" data-lucide="skip-forward" ></i> Skip</button>
-                </div>
-                <div style="margin-top:12px;" id="ex-instructions"></div>
+                <div class="clock-instructions" id="ex-instructions"></div>
 
                 <!-- Set logging — appears only when session.tracking_mode wants it -->
                 <div class="set-logger" id="set-logger" hidden>
@@ -86,86 +76,59 @@
                 </div>
             </div>
 
-            <!-- Rest screen (hidden) -->
-            <div class="timer-card hidden" id="rest-screen">
-                <div class="rest-screen">
-                    <h2 style="font-family:var(--font-head);font-size:2rem;margin-bottom:8px;color:var(--text);display:flex;align-items:center;justify-content:center;gap:10px;">
-                        <i class="icon-4xl" data-lucide="coffee" ></i> Rest
-                    </h2>
-                    <p id="next-exercise-label" style="color:var(--text-muted);margin-bottom:8px;"></p>
-                    <div class="timer-ring-wrap">
-                        <svg class="timer-ring-svg" viewBox="0 0 180 180">
-                            <circle class="timer-ring-bg" cx="90" cy="90" r="80"></circle>
-                            <circle class="timer-ring-fill rest-ring" cx="90" cy="90" r="80" id="rest-ring-fill"
-                                style="stroke-dasharray:502;stroke-dashoffset:0;"></circle>
-                        </svg>
-                        <div class="timer-center">
-                            <div class="timer-time" id="rest-timer">—</div>
-                            <div class="timer-label">rest</div>
-                        </div>
-                    </div>
-                    <div class="rest-actions">
-                        <button class="btn btn-outline" id="skip-rest-btn" onclick="skipRest()" style="display:flex;align-items:center;gap:6px;"><i class="icon-md" data-lucide="skip-forward" ></i> Skip Rest</button>
-                    </div>
+            <!-- Rest -->
+            <div class="stage stage-clock stage-rest hidden" id="rest-screen">
+                <div class="clock-name">Rest</div>
+                <div class="clock-meta" id="next-exercise-label"></div>
+                <div class="clock-face">
+                    <div class="clock-time" id="rest-timer">—</div>
+                    <div class="clock-label">until the next one</div>
+                </div>
+                <div class="clock-bar"><div class="clock-bar-fill" id="rest-ring-fill"></div></div>
+                <div class="clock-controls">
+                    <button class="btn btn-outline" id="skip-rest-btn" onclick="skipRest()"><i class="icon-md" data-lucide="skip-forward"></i> Skip rest</button>
                 </div>
             </div>
 
             <!-- Waiting for a tap — timers.auto_advance off -->
-            <div class="timer-card hidden" id="advance-screen">
-                <div style="text-align:center;padding:20px;">
-                    <i class="icon-5xl icon-success" data-lucide="check-circle-2" style="margin:0 auto 14px;display:block;"></i>
-                    <h2 style="font-family:var(--font-head);font-size:1.5rem;color:var(--text);margin-bottom:6px;" id="advance-title">Done!</h2>
-                    <p style="color:var(--text-muted);margin-bottom:18px;" id="advance-sub"></p>
-                    <button class="btn btn-primary btn-lg" onclick="confirmAdvance()" style="display:inline-flex;align-items:center;gap:8px;">
-                        <i class="icon-lg icon-fill" data-lucide="play"></i> Continue
-                    </button>
-                </div>
+            <div class="stage hidden" id="advance-screen">
+                <h2 class="stage-title" id="advance-title">Done</h2>
+                <p class="stage-sub" id="advance-sub"></p>
+                <button class="btn btn-primary btn-lg" onclick="confirmAdvance()">
+                    <i class="icon-lg icon-fill" data-lucide="play"></i> Continue</button>
             </div>
 
         </div>
 
-        <!-- Completion screen (sibling of main-panel so hide('main-panel') doesn't hide it) -->
-        <div class="session-complete-card hidden" id="complete-screen">
-            <i class="icon-6xl icon-primary" data-lucide="award" style="margin-bottom:10px;"></i>
-            <div class="completion-title">Session Complete!</div>
-            <p class="completion-sub" id="complete-sub">Great job. Keep it up!</p>
-            <div class="completion-stats">
-                <div class="completion-stat">
-                    <span class="stat-number" id="completed-exercises">0</span>
-                    <span class="stat-label">Exercises</span>
-                </div>
-                <div class="completion-stat">
-                    <span class="stat-number" id="total-time">0</span>
-                    <span class="stat-label">Minutes</span>
-                </div>
-                <div class="completion-stat">
-                    <span class="stat-number" id="session-score">0%</span>
-                    <span class="stat-label">Completion</span>
-                </div>
-            </div>
+        <!-- Completion (sibling of main-panel so hide('main-panel') doesn't hide it) -->
+        <div class="stage stage-done hidden" id="complete-screen">
+            <h2 class="stage-title">Session complete</h2>
+            <p class="stage-sub" id="complete-sub">Logged.</p>
+            <dl class="done-facts">
+                <div><dt>Exercises</dt><dd id="completed-exercises">0</dd></div>
+                <div><dt>Minutes</dt><dd id="total-time">0</dd></div>
+                <div><dt>Completed</dt><dd id="session-score">0%</dd></div>
+            </dl>
 
             <!-- How hard was it? (session.rpe_prompt) -->
-            <div id="rpe-block" hidden style="margin:6px 0 14px;">
-                <p style="font-size:0.88rem;color:var(--text-muted);margin-bottom:8px;">How hard did that feel?</p>
-                <div id="rpe-scale" style="display:flex;gap:5px;justify-content:center;flex-wrap:wrap;"></div>
+            <div id="rpe-block" class="rpe-block" hidden>
+                <p>How hard did that feel?</p>
+                <div id="rpe-scale" class="rpe-scale"></div>
             </div>
 
-            <div class="completion-actions">
-                <button class="btn btn-primary btn-lg" id="save-btn" onclick="saveSessionData()" style="display:flex;align-items:center;gap:8px;">
-                    <i class="icon-xl" data-lucide="save" ></i> Save Progress
-                </button>
+            <div class="stage-actions">
+                <button class="btn btn-primary btn-lg" id="save-btn" onclick="saveSessionData()">
+                    <i class="icon-xl" data-lucide="save"></i> Save progress</button>
                 <a href="/dashboard" class="btn btn-secondary">Dashboard</a>
-                <a href="/progress" class="btn btn-outline">View Progress →</a>
+                <a href="/progress" class="btn btn-outline">View progress</a>
             </div>
         </div>
 
-        <!-- Sidebar -->
-        <div class="session-sidebar" id="session-sidebar" style="display:none;">
-            <div class="session-exercise-list">
-                <div class="session-list-header">Exercises</div>
-                <div id="sidebar-list"></div>
-            </div>
-        </div>
+        <!-- Order of play -->
+        <aside class="session-sidebar" id="session-sidebar" style="display:none;">
+            <div class="session-list-header">Order of play</div>
+            <ol class="session-list" id="sidebar-list"></ol>
+        </aside>
 
     </div>
 </div>
@@ -173,11 +136,11 @@
 <!-- Stop Confirmation Modal -->
 <div class="modal-overlay hidden" id="stop-modal">
     <div class="modal-content">
-        <h3>Stop Session?</h3>
-        <p>Are you sure? Progress completed so far can still be saved.</p>
+        <h3>Stop this session?</h3>
+        <p>What you've done so far can still be saved.</p>
         <div class="modal-actions">
-            <button class="btn btn-secondary" onclick="hideStopModal()">Cancel</button>
-            <button class="btn btn-danger" onclick="stopSession()">Stop & Save</button>
+            <button class="btn btn-secondary" onclick="hideStopModal()">Keep going</button>
+            <button class="btn btn-danger" onclick="stopSession()">Stop and save</button>
         </div>
     </div>
 </div>
@@ -264,28 +227,63 @@
         const n = currentWorkout.exercises.length;
         const d = parseFloat(currentWorkout.total_duration).toFixed(1);
 
-        document.getElementById('session-title').innerHTML = '<i class="icon-xl icon-inline" data-lucide="activity" style="margin-right:8px;"></i> ' + escapeHtml(currentWorkout.sessionType || 'Custom Workout');
-        document.getElementById('welcome-title').textContent = 'Ready to Train!';
-        document.getElementById('welcome-sub').textContent = 'Check your space and warm up, then hit Start.';
+        document.getElementById('session-title').textContent = currentWorkout.sessionType || 'Custom workout';
+        document.getElementById('welcome-title').textContent = 'Ready when you are';
+        document.getElementById('welcome-sub').textContent = 'Clear some space. The first exercise starts after a short countdown.';
 
-        const chips = document.getElementById('workout-chips');
-        chips.innerHTML = [
-            `<span class="session-meta-chip"><i class="icon-sm" data-lucide="dumbbell" ></i> ${n} exercises</span>`,
-            `<span class="session-meta-chip"><i class="icon-sm" data-lucide="clock" ></i> ~${d} min</span>`,
-            `<span class="session-meta-chip"><i class="icon-sm" data-lucide="activity" ></i> ${escapeHtml(currentWorkout.difficulty || 'Custom')}</span>`,
-            currentWorkout.engine ? `<span class="engine-badge engine-${currentWorkout.engine === 'ai' ? 'ai' : 'rules'}">${currentWorkout.engine === 'ai' ? 'AI-built' : 'rule-built'}</span>` : ''
-        ].join('');
-        if (window.lucide) lucide.createIcons({ root: chips });
+        document.getElementById('workout-chips').textContent =
+            `${n} exercises, about ${d} min, ${currentWorkout.difficulty || 'custom'}` +
+            (currentWorkout.engine ? (currentWorkout.engine === 'ai' ? '. Built by your local model.' : '. Built by the rule engine.') : '.');
         document.getElementById('start-btn').style.display = 'inline-flex';
 
         buildSidebar();
+        buildSessionTimeline();
+        // The plan is on screen before it starts: the ruler and the order of
+        // play, with no playhead yet.
+        document.getElementById('session-progress-wrap').style.display = 'block';
+        if (CFG.showSidebar) show('session-sidebar');
+    }
+
+    // The planner's timeline, redrawn here so the playhead moves along the
+    // same bar the plan was read against.
+    function buildSessionTimeline() {
+        const track = document.getElementById('session-track');
+        if (!track) return;
+        track.innerHTML = '';
+        const total = currentWorkout.exercises.reduce((s, ex) => s + (parseFloat(ex.duration) || 0), 0) || 1;
+        let cursor = 0;
+        currentWorkout.exercises.forEach((ex, i) => {
+            const mins = parseFloat(ex.duration) || 0;
+            const seg = document.createElement('span');
+            seg.className = 'seg';
+            seg.id = 'ts-' + i;
+            seg.style.left = (cursor / total * 100) + '%';
+            seg.style.width = (mins / total * 100) + '%';
+            seg.title = ex.name;
+            track.appendChild(seg);
+            cursor += mins;
+        });
+    }
+
+    function moveSessionPlayhead(idx) {
+        const exs = currentWorkout.exercises;
+        const total = exs.reduce((s, ex) => s + (parseFloat(ex.duration) || 0), 0) || 1;
+        const before = exs.slice(0, idx).reduce((s, ex) => s + (parseFloat(ex.duration) || 0), 0);
+        document.getElementById('session-progress').style.left = (before / total * 100) + '%';
+        exs.forEach((_, i) => {
+            const seg = document.getElementById('ts-' + i);
+            if (!seg) return;
+            seg.classList.toggle('is-done', i < idx);
+            seg.classList.toggle('is-now', i === idx);
+        });
     }
 
     function showNoWorkout() {
-        document.getElementById('welcome-title').textContent = 'No Workout Planned';
-        document.getElementById('welcome-sub').textContent = 'Go to the Planner to create a workout first.';
+        document.getElementById('welcome-title').textContent = 'No workout planned';
+        document.getElementById('welcome-sub').textContent = 'Build one in the planner first.';
         const actions = document.getElementById('no-workout-actions');
         actions.style.display = 'flex';
+        actions.style.flexWrap = 'wrap';
         actions.style.justifyContent = 'center';
         actions.style.gap = '10px';
     }
@@ -295,10 +293,13 @@
         const list = document.getElementById('sidebar-list');
         list.innerHTML = '';
         currentWorkout.exercises.forEach((ex, i) => {
-            const item = document.createElement('div');
+            const item = document.createElement('li');
             item.className = 'session-list-item';
             item.id = 'si-' + i;
-            item.innerHTML = `<div class="session-list-num">${i + 1}</div><span style="flex:1;font-size:0.85rem;">${escapeHtml(ex.name)}</span>`;
+            const sets = Math.max(1, parseInt(ex.sets, 10) || 1);
+            const secs = Math.round(ex.set_seconds || (parseFloat(ex.duration) * 60) / sets);
+            item.innerHTML = `<span class="session-list-name">${escapeHtml(ex.name)}</span>` +
+                `<span class="session-list-meta">${sets > 1 ? sets + '×' : ''}${secs}s</span>`;
             list.appendChild(item);
         });
     }
@@ -324,6 +325,7 @@
         show('exercise-screen');
         if (CFG.showSidebar) show('session-sidebar');
         document.getElementById('session-progress-wrap').style.display = 'block';
+        document.getElementById('session-progress').hidden = false;
         document.getElementById('session-progress-info').style.display = 'flex';
         document.getElementById('pause-btn').style.display = 'inline-flex';
         document.getElementById('stop-btn').style.display = 'inline-flex';
@@ -344,12 +346,8 @@
         document.getElementById('ex-name').textContent = ex.name;
         renderExerciseMeta(ex, 1);
 
-        if (CFG.showInstructions && ex.instructions) {
-            document.getElementById('ex-instructions').innerHTML =
-                `<p style="font-size:0.85rem;color:var(--text-muted);text-align:center;">${escapeHtml(ex.instructions)}</p>`;
-        } else {
-            document.getElementById('ex-instructions').innerHTML = '';
-        }
+        document.getElementById('ex-instructions').textContent =
+            (CFG.showInstructions && ex.instructions) ? ex.instructions : '';
 
         buildSetLogger(ex);
 
@@ -360,11 +358,11 @@
             else if (i === idx) el.classList.add('active');
         });
 
-        // Update overall progress bar
+        // Move the playhead along the timeline
         const pct = (idx / currentWorkout.exercises.length) * 100;
-        document.getElementById('session-progress').style.width = pct + '%';
-        document.getElementById('exercise-progress').textContent = `${idx} / ${currentWorkout.exercises.length} exercises`;
-        document.getElementById('progress-text').textContent = Math.round(pct) + '% Complete';
+        moveSessionPlayhead(idx);
+        document.getElementById('exercise-progress').textContent = `${idx} of ${currentWorkout.exercises.length} exercises`;
+        document.getElementById('progress-text').textContent = Math.round(pct) + '% done';
 
         announce(ex.name);
         currentSet = 1;
@@ -386,12 +384,12 @@
 
     function renderExerciseMeta(ex, setNumber) {
         const sets = setsOf(ex);
-        document.getElementById('ex-meta').innerHTML = [
-            `<span class="badge badge-primary">${escapeHtml(ex.category)}</span>`,
-            sets > 1 ? `<span class="badge badge-neutral">set ${setNumber} of ${sets}</span>` : '',
-            `<span class="badge badge-neutral">${setSecondsOf(ex)}s</span>`,
-            ex.difficulty ? `<span class="badge badge-${escapeHtml(ex.difficulty)}">${escapeHtml(ex.difficulty)}</span>` : ''
-        ].join(' ');
+        document.getElementById('ex-meta').textContent = [
+            ex.category,
+            sets > 1 ? `set ${setNumber} of ${sets}` : '',
+            `${setSecondsOf(ex)} s`,
+            ex.difficulty || ''
+        ].filter(Boolean).join(', ');
     }
 
     function startCurrentSet() {
@@ -502,9 +500,9 @@
         hide('exercise-screen');
         show('advance-screen');
         const nextEx = currentWorkout.exercises[currentIdx + 1];
-        document.getElementById('advance-title').textContent = doneEx.name + ' done!';
+        document.getElementById('advance-title').textContent = doneEx.name + ' done';
         document.getElementById('advance-sub').textContent =
-            nextEx ? 'Next up: ' + nextEx.name + '. Take the rest you need.' : '';
+            nextEx ? 'Next: ' + nextEx.name + '. Continue when you\'re ready.' : '';
     }
 
     function confirmAdvance() {
@@ -538,7 +536,7 @@
         after = after || (() => startExercise(currentIdx + 1));
         if (nextLabel === undefined) {
             const nextEx = currentWorkout.exercises[currentIdx + 1];
-            nextLabel = nextEx ? 'Next: ' + nextEx.name : 'Last exercise done!';
+            nextLabel = nextEx ? 'Next: ' + nextEx.name : 'That was the last one';
         }
         const restSec = restSecondsFor(ex);
 
@@ -684,7 +682,7 @@
         document.getElementById('completed-exercises').textContent = sessionData.completedExercises;
         document.getElementById('total-time').textContent = sessionData.totalDuration;
         document.getElementById('session-score').textContent = pct + '%';
-        document.getElementById('complete-sub').textContent = pct >= 80 ? 'Outstanding effort!' : 'Good work — keep building the habit!';
+        document.getElementById('complete-sub').textContent = pct >= 80 ? 'Logged. Nearly every exercise done.' : 'Logged. Partial sessions count too.';
         document.getElementById('pause-btn').style.display = 'none';
         document.getElementById('resume-btn').style.display = 'none';
         document.getElementById('stop-btn').style.display = 'none';
@@ -702,13 +700,13 @@
         scale.innerHTML = '';
         for (let i = 1; i <= 10; i++) {
             const b = document.createElement('button');
-            b.className = 'btn btn-sm btn-outline';
+            b.className = 'rpe-btn';
+            b.type = 'button';
             b.textContent = i;
-            b.style.minWidth = '36px';
             b.addEventListener('click', () => {
                 chosenRpe = i;
-                Array.from(scale.children).forEach(x => x.classList.remove('btn-primary'));
-                b.classList.add('btn-primary');
+                Array.from(scale.children).forEach(x => x.classList.remove('is-on'));
+                b.classList.add('is-on');
             });
             scale.appendChild(b);
         }
@@ -802,12 +800,12 @@
 
     // ─── Helpers ──────────────────────────────────────────────
     function fmtTime(s) { return formatDuration(s); }
+    // The clock bar drains left to right, like the timeline it belongs to.
     function updateRing(id, left, total) {
         const el = document.getElementById(id);
         if (!el) return;
-        const circumference = 502;
-        const offset = total <= 0 ? 0 : ((total - left) / total) * circumference;
-        el.style.strokeDashoffset = offset;
+        const pct = total <= 0 ? 0 : Math.max(0, left / total) * 100;
+        el.style.width = pct + '%';
     }
     function domainKey(cat) {
         const map = {

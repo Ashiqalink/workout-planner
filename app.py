@@ -13,10 +13,13 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timedelta
 from logging.handlers import RotatingFileHandler
+import threading
 import secrets
 from werkzeug.security import generate_password_hash, check_password_hash
 
 import settings_registry as reg
+import workout_judge as judge
+import settings_judge
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -220,6 +223,8 @@ def init_db():
     })
     _add_missing_columns(conn, 'exercises', {
         'equipment': 'TEXT',
+        # JSON {region: probability} from the coaching judge; NULL = untagged.
+        'region_probs': 'TEXT',
     })
 
     # Indexes for the per-user lookups every page performs
@@ -333,6 +338,58 @@ def invalidate_exercise_cache():
     global _exercise_cache
     _exercise_cache = None
 
+def _parse_region_probs(raw):
+    """Stored judge tags as a dict, or None when absent or unreadable."""
+    if not raw:
+        return None
+    try:
+        probs = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    return probs if isinstance(probs, dict) else None
+
+
+def library_for(settings):
+    """The exercise library as this user's settings read it.
+
+    With ai.judge_regions off the judge's region tags are hidden, so every
+    region reading falls back to the muscle-label heuristic — one switch,
+    applied where the library enters the engine.
+    """
+    library = get_all_exercises_from_db()
+    if (settings or {}).get('ai.judge_regions', True):
+        return library
+    return [dict(ex, region_probs=None) for ex in library]
+
+
+def tag_library_regions(only_untagged=True, timeout=judge.DEFAULT_TIMEOUT):
+    """Ask the judge to tag body regions for the library; return how many were written.
+
+    Runs REGION_BATCH exercises per request. Rows the judge could not answer
+    keep whatever they had; a user can rerun this any time.
+    """
+    conn = get_db_connection()
+    try:
+        where = 'WHERE region_probs IS NULL' if only_untagged else ''
+        rows = conn.execute(f'''
+            SELECT id, category, exercise_name, primary_benefit, secondary_benefit
+            FROM exercises {where} ORDER BY id
+        ''').fetchall()
+        exercises = [{'name': r['exercise_name'], 'category': r['category'],
+                      'description': r['primary_benefit'] or '',
+                      'target_muscles': r['secondary_benefit'] or ''} for r in rows]
+        tagged = judge.tag_regions(exercises, timeout=timeout)
+        for index, probs in tagged.items():
+            conn.execute('UPDATE exercises SET region_probs = ? WHERE id = ?',
+                         (json.dumps(probs, sort_keys=True), rows[index]['id']))
+        conn.commit()
+    finally:
+        conn.close()
+    if tagged:
+        invalidate_exercise_cache()
+    return len(tagged)
+
+
 def get_all_exercises_from_db():
     """Retrieve exercises from the SQLite database (cached until invalidated)."""
     global _exercise_cache
@@ -343,7 +400,8 @@ def get_all_exercises_from_db():
     try:
         rows = conn.execute('''
             SELECT category, exercise_name, duration_minutes, primary_benefit,
-                   secondary_benefit, difficulty_level, instructions, equipment
+                   secondary_benefit, difficulty_level, instructions, equipment,
+                   region_probs
             FROM exercises
         ''').fetchall()
         exercises = []
@@ -357,6 +415,7 @@ def get_all_exercises_from_db():
                 'difficulty': r['difficulty_level'] or 'beginner',
                 'instructions': r['instructions'] or '',
                 'equipment': r['equipment'] or 'None',
+                'region_probs': _parse_region_probs(r['region_probs']),
             })
         _exercise_cache = exercises
         return exercises
@@ -1571,7 +1630,7 @@ MOVEMENT_PATTERN_RULES = (
                    'recognition', 'reaction time', 'spatial', 'rhythm',
                    'dual task', 'pattern')),
     ('push', ('push-up', 'push up', 'pushup', 'dip', 'press', 'overhead reach')),
-    ('pull', ('row', 'pull', 'superman', 'chin')),
+    ('pull', ('row', 'pull', 'superman', 'chin-up', 'chin up', 'chinup')),
     ('hinge', ('bridge', 'hip thrust', 'deadlift', 'good morning', 'inchworm',
                'glute')),
     ('squat', ('squat', 'wall sit', 'step-up', 'step up', 'knee extension')),
@@ -1580,10 +1639,12 @@ MOVEMENT_PATTERN_RULES = (
     ('core', ('plank', 'crunch', 'dead bug', 'leg raise', 'hollow', 'tabletop',
               'shoulder tap', 'twist', 'bear crawl', 'crab walk', 'sit-up')),
     ('carry', ('hold', 'isometric', 'wall sit', 'carry')),
+    ('locomotion', ('run ', 'runs', 'running', 'sprint', 'shuttle', 'jog',
+                    'interval', 'cardio')),
     ('mobility', ('stretch', 'circle', 'swing', 'roll', 'mobility', 'hug',
                   'toe touch', 'heel to butt')),
-    ('locomotion', ('run', 'sprint', 'shuttle', 'shuffle', 'carioca', 'grapevine',
-                    'weave', 'walk', 'jog', 'march', 'climb', 'knee', 'kick',
+    ('locomotion', ('run', 'shuffle', 'carioca', 'grapevine',
+                    'weave', 'walk', 'march', 'climb', 'knee', 'kick',
                     'boxing', 'danc', 'drill', 'step', 'ladder', 'cone',
                     'backpedal', 'quick feet', 'figure 8', 't-drill', 'balance')),
     ('calves', ('calf raise',)),
@@ -1610,6 +1671,11 @@ def muscle_regions(exercise):
     but the same region ({push}), which is the whole point: two pressing
     exercises should read as a repeat even when their labels differ.
     """
+    # The judge's tags win when the library has them: a yes/no per region read
+    # from the whole row, not a lookup of whichever muscles someone typed.
+    tagged = judge.regions_from_probs(exercise.get('region_probs'))
+    if tagged:
+        return tagged
     regions = {MUSCLE_REGIONS[t] for t in muscle_tokens(exercise) if t in MUSCLE_REGIONS}
     # 'Full body, power' is still a full-body exercise; 'Full body, chest' is a
     # chest one that was labelled loosely. Only a named body part displaces it.
@@ -1901,9 +1967,108 @@ def sequence_for_recovery(exercises):
     return ordered
 
 
+# ── Session phase: where an exercise belongs in the order ────────────
+#
+# The NSCA order of exercise categories — power, then multi-joint, then
+# assistance — with conditioning after the strength work and mobility at the
+# ends (sources in learn/11-program-design.md). Read from the movement pattern,
+# so it is one more view of the same three-way reading of an exercise.
+
+_PATTERN_TO_PHASE = {
+    'jump': 'power',
+    'push': 'compound', 'pull': 'compound', 'hinge': 'compound',
+    'squat': 'compound', 'lunge': 'compound',
+    'core': 'isolation', 'carry': 'isolation', 'calves': 'isolation',
+    'locomotion': 'conditioning',
+    'mobility': 'mobility',
+    'cognitive': 'cognitive',
+}
+
+
+_POWER_WORDS = ('jump', 'hop', 'bound', 'burpee', 'explosive', 'plyo')
+# Whole words: "Crunches" contains "run" and is not a run.
+_CONDITIONING_RE = re.compile(r'\b(run|runs|running|sprint\w*|shuttle\w*|jog\w*|'
+                              r'interval\w*|cardio)\b')
+
+
+def exercise_phase(exercise):
+    """'power', 'compound', 'isolation', 'conditioning', 'mobility' or 'cognitive'."""
+    # A jump is power wherever it sits in the name: "Squat Jumps" is a squat
+    # to the pattern reader (the name rule for squat wins there) but belongs
+    # first in the session, while the nervous system is fresh.
+    name = str(exercise.get('name') or '').lower()
+    if any(word in name for word in _POWER_WORDS):
+        return 'power'
+    if _CONDITIONING_RE.search(name):
+        return 'conditioning'
+    if str(exercise.get('category') or '') == 'Cognition':
+        return 'cognitive'
+    phase = _PATTERN_TO_PHASE.get(movement_pattern(exercise))
+    if phase:
+        return phase
+    regions = muscle_regions(exercise)
+    if regions & {'push', 'pull', 'legs'}:
+        return 'compound'
+    if 'core' in regions:
+        return 'isolation'
+    if 'mobility' in regions:
+        return 'mobility'
+    return 'conditioning'
+
+
+def order_phased(exercises):
+    """Power → compound → accessory → conditioning, alternating within each phase.
+
+    Phases are laid down in PHASE_ORDER and never mixed. Inside each phase the
+    recovery sequencer's greedy-then-swap pass runs against the *whole* tail
+    built so far, so the first block of a phase is chosen to rest whatever the
+    previous phase ended on — a stable sort after sequencing lost exactly that,
+    and put two leg movements back to back across the compound/isolation seam.
+    """
+    rank = {phase: i for i, phase in enumerate(judge.PHASE_ORDER)}
+    groups = {}
+    for exercise in exercises:
+        groups.setdefault(rank.get(exercise_phase(exercise), len(rank)), []).append(exercise)
+    ordered = []
+    for key in sorted(groups):
+        remaining, start = groups[key], len(ordered)
+        while remaining:
+            best = min(range(len(remaining)),
+                       key=lambda i: (_adjacency_cost(remaining[i], ordered), i))
+            ordered.append(remaining.pop(best))
+        _improve_span(ordered, start)
+    return ordered
+
+
+def _improve_span(ordered, start):
+    """Swap pairs inside ordered[start:] while the whole sequence gets cheaper."""
+    cost = sequence_cost(ordered)
+    for _ in range(len(ordered) - start):
+        improved = False
+        for i in range(start, len(ordered) - 1):
+            for j in range(i + 1, len(ordered)):
+                ordered[i], ordered[j] = ordered[j], ordered[i]
+                candidate = sequence_cost(ordered)
+                if candidate < cost - 1e-9:
+                    cost, improved = candidate, True
+                else:
+                    ordered[i], ordered[j] = ordered[j], ordered[i]
+        if not improved:
+            break
+
+
+def describe_for_judge(exercises):
+    """The engine's reading of each block, in the shape workout_judge expects."""
+    return [judge.describe_exercise(ex, i + 1, exercise_phase(ex),
+                                    movement_pattern(ex), muscle_regions(ex))
+            for i, ex in enumerate(exercises)]
+
+
 def order_exercises(exercises, mode):
     """Sequence a chosen set. Never adds or removes anything."""
     items = list(exercises)
+    if mode == 'phased':
+        return order_phased(items)
     if mode == 'hardest_first':
         return sorted(items, key=lambda e: -_difficulty_rank(e))
     if mode == 'easiest_first':
@@ -2073,7 +2238,7 @@ def build_candidate_pool(domains, settings, exercises=None):
     rule-based path can never disagree about what is on the table — the model
     is only ever offered exercises the rules would also have allowed.
     """
-    library = exercises if exercises is not None else get_all_exercises_from_db()
+    library = exercises if exercises is not None else library_for(settings)
     categories = {DOMAIN_TO_CATEGORY[d] for d in domains if d in DOMAIN_TO_CATEGORY}
     pool = [ex for ex in library if ex.get('category') in categories]
     pool = filter_by_equipment(pool, (settings or {}).get('workout.equipment'))
@@ -2131,7 +2296,7 @@ def api_generate_workout():
                      domains, duration, difficulty)
 
         try:
-            library = get_all_exercises_from_db()
+            library = library_for(settings)
         except Exception as e:
             return jsonify({'error': f'Database error: {str(e)}'}), 500
         if not library:
@@ -2190,8 +2355,18 @@ def api_generate_workout():
                 main_exercises = llm_workout['exercises']
                 engine = 'ai'
 
-        main_exercises = order_exercises(main_exercises,
-                                         settings.get('workout.ordering', 'alternate'))
+        ordering = settings.get('workout.ordering', 'phased')
+        main_exercises = order_exercises(main_exercises, ordering)
+
+        # The TypeSafe judge: typed scores over the engine's own plan, and —
+        # when allowed — a pick between orderings the engine already built. It
+        # returns numbers, never words; every sentence below is built here.
+        verdict = judge_generated_workout(main_exercises, ordering, main_duration,
+                                          difficulty, focus, history, settings)
+        if verdict and verdict.get('reordered'):
+            main_exercises = verdict.pop('exercises')
+        elif verdict:
+            verdict.pop('exercises', None)
 
         # Ordering and the bookend joins both move the wall clock a little, so
         # the whole session is trimmed back to the length that was asked for.
@@ -2217,6 +2392,13 @@ def api_generate_workout():
             applied.append(f'{shortfall} min short of the {duration} requested — the '
                            'exercises your settings allow ran out')
 
+        if verdict and verdict.get('reordered'):
+            who = ('the coaching judge' if verdict.get('order_decided_by') == 'judge'
+                   else 'the coaching rubric')
+            applied.append(f"order picked by {who}: {verdict['order_choice']} "
+                           f"scored {int(verdict['order_margin'] * 100)} points above "
+                           f"{ordering}")
+
         return jsonify({
             'success': True,
             'exercises': exercises,
@@ -2226,11 +2408,242 @@ def api_generate_workout():
             'engine': engine,
             'applied_settings': applied,
             'pool_size': len(pool),
+            'confidence': verdict,
             'workout_id': f"workout_{datetime.now().strftime('%Y%m%d%H%M%S')}"
         })
     except Exception as e:
         logger.exception("generate-workout failed")
         return jsonify({'error': str(e)}), 500
+
+
+# Candidate orderings the judge may choose between. The engine builds all of
+# them; the model only says which. Anything not here cannot be chosen.
+JUDGE_ORDERINGS = ('phased', 'alternate', 'hardest_first')
+
+
+def judge_generated_workout(main_exercises, ordering, minutes, difficulty, focus,
+                            history, settings):
+    """Run the TypeSafe judge over a built session. None when it does not run.
+
+    Returns a JSON-safe dict: the composite `score`, its `band`, the per-
+    dimension readings, an engine-written `summary`, and — when the judge was
+    allowed to reorder and was confident — `reordered: True` with the
+    re-sequenced `exercises` under that key so the caller can swap them in.
+    """
+    if not main_exercises or not settings.get('ai.judge_enabled', True):
+        return None
+    if not judge.available():
+        return None
+    timeout = float(settings.get('ai.judge_timeout_seconds', judge.DEFAULT_TIMEOUT) or
+                    judge.DEFAULT_TIMEOUT)
+    if len(main_exercises) >= 3 and settings.get('ai.judge_reorder', True):
+        # Every ordering on offer, keyed by name, deduplicated by the sequence
+        # it produces — asking the model to choose between two identical lists
+        # is asking it to flip a coin.
+        candidates, orders, seen = {}, {}, set()
+        for mode in (ordering,) + tuple(m for m in JUDGE_ORDERINGS if m != ordering):
+            sequence = order_exercises(main_exercises, mode)
+            key = tuple(e.get('name') for e in sequence)
+            if key in seen:
+                continue
+            seen.add(key)
+            candidates[mode] = describe_for_judge(sequence)
+            orders[mode] = sequence
+        # The engine reads the rubric first. When its own reading separates
+        # the orderings clearly, only the best goes to the judge — a third of
+        # the questions, and the judge's answer is a score, not a contest.
+        ranked, local_scores = judge.rank_orderings(candidates, difficulty)
+        runner_up = local_scores[ranked[1]] if len(ranked) > 1 else None
+        clear = runner_up is None or \
+            local_scores[ranked[0]] - runner_up >= judge.REORDER_MIN_MARGIN
+        if len(candidates) > 1 and not clear:
+            picked = judge.choose_order(candidates, ordering, difficulty, minutes, focus,
+                                        history, timeout=timeout)
+            if not picked:
+                return None
+            chosen = picked['chosen'] or ordering
+            summary = picked['summaries'].get(chosen)
+            if not summary:
+                return None
+            verdict = dict(summary)
+            verdict['summary'] = judge.describe_confidence(summary)
+            verdict['order_choice'] = chosen
+            verdict['order_decided_by'] = 'judge'
+            verdict['order_scores'] = picked['scores']
+            verdict['order_margin'] = picked['margin']
+            verdict['reordered'] = chosen != ordering
+            verdict['exercises'] = orders[chosen]
+            return verdict
+        chosen = ranked[0]
+        summary = judge.judge_session(candidates[chosen], difficulty, minutes, focus,
+                                      history, timeout=timeout)
+        if not summary:
+            return None
+        verdict = dict(summary)
+        verdict['summary'] = judge.describe_confidence(summary)
+        verdict['order_choice'] = chosen
+        verdict['order_decided_by'] = 'engine'
+        verdict['order_scores'] = local_scores
+        verdict['order_margin'] = round(local_scores[chosen] -
+                                        local_scores.get(ordering, local_scores[chosen]), 3)
+        verdict['reordered'] = chosen != ordering
+        verdict['exercises'] = orders[chosen]
+        return verdict
+    summary = judge.judge_session(describe_for_judge(main_exercises), difficulty,
+                                  minutes, focus, history, timeout=timeout)
+    if not summary:
+        return None
+    verdict = dict(summary)
+    verdict['summary'] = judge.describe_confidence(summary)
+    verdict['order_choice'] = ordering
+    verdict['order_decided_by'] = 'engine'
+    verdict['reordered'] = False
+    return verdict
+
+
+def session_profile(name, exercises):
+    """One session as the week planner sees it: regions, phases, load, minutes."""
+    regions, phases = set(), []
+    for ex in exercises:
+        regions |= muscle_regions(ex)
+        phases.append(exercise_phase(ex))
+    ranks = [_difficulty_rank(ex) for ex in exercises] or [0]
+    mean_rank = sum(ranks) / len(ranks)
+    load = 'hard' if mean_rank >= 1.5 else 'moderate' if mean_rank >= 0.75 else 'easy'
+    if phases and all(p in ('mobility', 'cognitive') for p in phases):
+        load = 'easy'
+    return {
+        'name': name,
+        'regions': sorted(regions),
+        'phases': sorted(set(phases)),
+        'load': load,
+        'minutes': plan_total_minutes(exercises) if exercises else 0,
+        'exercise_count': len(exercises),
+    }
+
+
+def describe_week(result):
+    """Engine-written sentence for a laid-out week."""
+    chosen = result.get('chosen') or {}
+    order = ' → '.join(f"{d['day']}: {d['session']['name']}" for d in chosen.get('days', []))
+    if not result.get('judged'):
+        return f'Laid out by the 48-hour rule alone: {order}.'
+    pct = int(round((result.get('confidence') or 0) * 100))
+    spacing = (result.get('spacing') or {}).get(chosen.get('label'))
+    text = f'{order}. Picked at {pct}% confidence.'
+    if spacing and spacing['level'] < spacing['top']:
+        text += f" Spacing: {spacing['label'].lower()}."
+    variety = result.get('variety')
+    if variety and variety['level'] < variety['top']:
+        text += f" Coverage: {variety['label'].lower()}."
+    return text
+
+
+@app.route('/api/plan/orchestrate', methods=['POST'])
+def api_plan_orchestrate():
+    """Lay saved or inline sessions over the week's training days.
+
+    Body: {"days": ["Mon", "Wed", "Fri"], "sessions": [{"name": ..,
+    "exercises": [names or records]} | {"workout_id": <saved id>}]}.
+    The engine enumerates layouts and prices them by the 48-hour rule; the
+    TypeSafe judge (when a key is set) picks among the cheapest few and scores
+    the spacing of each. Without a key the cheapest layout is returned as is.
+    """
+    csrf = csrf_protect_json()
+    if csrf:
+        return csrf
+    data = request.get_json(silent=True) or {}
+    days = [str(d) for d in data.get('days') or []
+            if str(d)[:3].lower() in judge.DAY_INDEX]
+    raw_sessions = data.get('sessions') or []
+    if not days or not isinstance(raw_sessions, list) or not raw_sessions:
+        return jsonify({'error': 'days (Mon..Sun) and sessions are both required'}), 400
+    if len(raw_sessions) > 7:
+        return jsonify({'error': 'A week holds at most 7 sessions'}), 400
+
+    library = {str(e.get('name', '')).lower(): e for e in library_for(get_settings())}
+    user_id = session.get('user_id', 'guest')
+    profiles = []
+    for i, raw in enumerate(raw_sessions):
+        if not isinstance(raw, dict):
+            continue
+        if raw.get('workout_id') is not None and user_id != 'guest':
+            conn = get_db_connection()
+            row = conn.execute('SELECT workout_name, workout_data FROM saved_workouts '
+                               'WHERE id = ? AND user_id = ?',
+                               (raw['workout_id'], user_id)).fetchone()
+            conn.close()
+            if not row:
+                return jsonify({'error': f'Saved workout {raw["workout_id"]} not found'}), 404
+            try:
+                saved = json.loads(row['workout_data'] or '{}')
+            except ValueError:
+                saved = {}
+            name = raw.get('name') or row['workout_name']
+            items = saved.get('exercises') if isinstance(saved, dict) else saved
+        else:
+            name = raw.get('name') or f'Session {i + 1}'
+            items = raw.get('exercises') or []
+        records = []
+        for item in items or []:
+            key = str(item.get('name') if isinstance(item, dict) else item).lower()
+            if key in library:
+                records.append(library[key])
+        profiles.append(session_profile(str(name)[:60], records))
+
+    if not profiles:
+        return jsonify({'error': 'No sessions could be read'}), 400
+    settings = get_settings()
+    timeout = float(settings.get('ai.judge_timeout_seconds', judge.DEFAULT_TIMEOUT) or
+                    judge.DEFAULT_TIMEOUT)
+    if not settings.get('ai.judge_enabled', True):
+        laid = judge.candidate_schedules(days, profiles)
+        result = {'judged': False, 'chosen': laid[0] if laid else None,
+                  'alternatives': laid[1:], 'confidence': None, 'spacing': {},
+                  'variety': None}
+    else:
+        result = judge.orchestrate_week(days, profiles, timeout=timeout)
+    if not result or not result.get('chosen'):
+        return jsonify({'error': 'Nothing to lay out'}), 400
+    result['sessions'] = profiles
+    result['summary'] = describe_week(result)
+    return jsonify(result)
+
+
+_program_week_cache = {}
+
+
+@app.route('/api/plan/confidence', methods=['GET'])
+def api_plan_confidence():
+    """Judge one week of the prescribed 4-week program (cached: the CSV is static)."""
+    try:
+        week = int(request.args.get('week') or
+                   get_current_week(session.get('user_id', 'guest')))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'week must be a number'}), 400
+    settings = get_settings()
+    if not settings.get('ai.judge_enabled', True) or not judge.available():
+        return jsonify({'week': week, 'confidence': None,
+                        'reason': 'judge disabled or no TYPESAFE_API_KEY'})
+    if week in _program_week_cache:
+        return jsonify({'week': week, 'confidence': _program_week_cache[week],
+                        'cached': True})
+    columns = ('Day', 'Duration', 'Type', 'Intensity', 'Focus', 'Description')
+
+    def rows(n):
+        return [{c: str(e.get(c, '')) for c in columns} for e in training_data.get('program') or []
+                if str(e.get('Week', '')).strip() == str(n)]
+
+    this_week = rows(week)
+    last_week = rows(week - 1) if week > 1 else None
+    if not this_week:
+        return jsonify({'error': f'No program entries for week {week}'}), 404
+    timeout = float(settings.get('ai.judge_timeout_seconds', judge.DEFAULT_TIMEOUT) or
+                    judge.DEFAULT_TIMEOUT)
+    verdict = judge.judge_program_week(this_week, last_week, timeout=timeout)
+    if verdict:
+        _program_week_cache[week] = verdict
+    return jsonify({'week': week, 'confidence': verdict, 'cached': False})
 
 @app.route('/api/today-workout', methods=['POST'])
 def api_today_workout():
@@ -2333,8 +2746,27 @@ def api_add_exercise():
             'target_muscles': target_muscles,
             'difficulty': difficulty,
             'instructions': instructions,
-            'equipment': equipment
+            'equipment': equipment,
+            'region_probs': None,
         }
+        # One judge request, best effort: a failure leaves the row untagged
+        # and the heuristic reads its muscle list as before.
+        settings = get_settings()
+        if settings.get('ai.judge_regions', True) and judge.available():
+            timeout = float(settings.get('ai.judge_timeout_seconds', judge.DEFAULT_TIMEOUT) or
+                            judge.DEFAULT_TIMEOUT)
+            probs = judge.tag_regions([new_ex], timeout=timeout).get(0)
+            if probs:
+                conn = get_db_connection()
+                try:
+                    conn.execute('UPDATE exercises SET region_probs = ? '
+                                 'WHERE category = ? AND exercise_name = ?',
+                                 (json.dumps(probs, sort_keys=True), category, name))
+                    conn.commit()
+                finally:
+                    conn.close()
+                invalidate_exercise_cache()
+                new_ex['region_probs'] = probs
         return jsonify({'success': True, 'exercise': new_ex})
     except sqlite3.IntegrityError:
         return jsonify({
@@ -2344,6 +2776,47 @@ def api_add_exercise():
     except Exception as e:
         logger.exception("Failed to add custom exercise")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/exercises/tag-regions', methods=['POST'])
+def api_tag_regions():
+    """Tag body regions for the library with the coaching judge.
+
+    Body: {"all": true} retags every row; default tags only untagged rows.
+    Login and CSRF required: it rewrites library data for everyone.
+    """
+    if session.get('user_id') in (None, 'guest'):
+        return jsonify({'success': False, 'error': 'Login required'}), 401
+    csrf_protect_json()
+    settings = get_settings()
+    if not settings.get('ai.judge_regions', True):
+        return jsonify({'success': False,
+                        'error': 'Region tagging is off in settings'}), 400
+    if not judge.available():
+        return jsonify({'success': False,
+                        'error': 'No TYPESAFE_API_KEY on the server'}), 503
+    data = request.get_json(silent=True) or {}
+    timeout = float(settings.get('ai.judge_timeout_seconds', judge.DEFAULT_TIMEOUT) or
+                    judge.DEFAULT_TIMEOUT)
+    try:
+        tagged = tag_library_regions(only_untagged=not data.get('all'), timeout=timeout)
+    except Exception as e:
+        logger.exception("Region tagging failed")
+        return jsonify({'success': False, 'error': str(e)}), 500
+    return jsonify({'success': True, 'tagged': tagged})
+
+
+@app.cli.command('tag-regions')
+def cli_tag_regions():
+    """Tag body regions for the exercise library with the coaching judge.
+
+    Set TAG_ALL=1 to retag rows that already carry tags.
+    """
+    if not judge.available():
+        print('No TYPESAFE_API_KEY in the environment; nothing tagged.')
+        return
+    tagged = tag_library_regions(only_untagged=os.environ.get('TAG_ALL') != '1')
+    print(f'Tagged {tagged} exercises.')
+
 
 @app.route('/api/workouts/save', methods=['POST'])
 def api_save_workout():
@@ -3144,14 +3617,25 @@ Example response:
 def resolve_settings_request(query, settings):
     """Turn a plain-language request into proposed changes.
 
-    Returns (changes, engine). `engine` is 'rules' or 'ai' and is reported to
-    the user, so it is always clear which one answered.
+    Returns (changes, engine). `engine` is 'rules', 'judge' (TypeSafe) or 'ai'
+    (the local model) and is reported to the user, so it is always clear which
+    one answered.
     """
     scored = max((reg.score_setting(s, query) for s in reg.SETTINGS), default=0.0)
     direct = reg.match_intent(query, current=settings)
 
     if direct and scored >= DIRECT_MATCH_CONFIDENCE:
         return direct, 'rules'
+
+    # Jev reads the wish, not the words ("my eyes hurt at night" -> dark
+    # theme). One kept-alive round trip, ~0.6-1.3 s measured; the rules above
+    # answer in ~6 ms, so it only runs when they were not sure.
+    if settings.get('ai.judge_settings', True) and judge.available():
+        timeout = float(settings.get('ai.judge_timeout_seconds', judge.DEFAULT_TIMEOUT) or
+                        judge.DEFAULT_TIMEOUT)
+        via_judge = settings_judge.resolve(query, settings, timeout=timeout)
+        if via_judge:
+            return list(via_judge), 'judge'
 
     if settings.get('ai.enabled', True):
         via_model = settings_intent_via_llm(query, settings)
@@ -3602,6 +4086,10 @@ if __name__ == '__main__':
     host = os.environ.get('FLASK_HOST', '127.0.0.1')
     port = int(os.environ.get('FLASK_PORT', 5000))
     logger.info("Starting FitTrack on http://%s:%s (log level %s)", host, port, _log_level)
+    # The TLS handshake to TypeSafe is ~640 ms of a cold call. Paying it here,
+    # off the request thread, means the first person to ask a settings
+    # question waits for one round trip instead of two.
+    threading.Thread(target=settings_judge.warm, daemon=True).start()
     app.run(
         debug=os.environ.get('FLASK_DEBUG', '0') == '1',
         host=host,

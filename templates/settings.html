@@ -63,7 +63,7 @@
   <div class="page-header">
     <div class="breadcrumb"><a href="{{ url_for('index') }}">Home</a> › Settings</div>
     <h1>Settings</h1>
-    <p>Start simple. Open up as much as you want — nothing here is hidden from search.</p>
+    <p>Start simple. Open up as much as you want. Nothing here is hidden from search.</p>
   </div>
 
   <!-- ── Just ask ──────────────────────────────────────────────── -->
@@ -76,7 +76,7 @@
       Describe what you want in your own words. It finds the switches, shows you exactly
       what will change, and waits for your OK.
       {% if not settings['ai.enabled'] %}
-      Your local model is turned off, so this uses the built-in matcher — which handles
+      Your local model is turned off, so this uses the built-in matcher, which handles
       most everyday requests on its own.
       {% endif %}
     </p>
@@ -130,7 +130,7 @@
   <div class="settings-search-wrap">
     <i class="icon-lg settings-search-icon" data-lucide="search"></i>
     <input type="search" id="settings-search" autocomplete="off"
-           placeholder="Search every setting — including the ones your current mode hides…"
+           placeholder="Search every setting, including the ones your current mode hides…"
            aria-label="Search settings">
   </div>
   <div class="search-note" id="search-note" hidden></div>
@@ -191,8 +191,8 @@
           <h2>Your data</h2>
         </div>
         <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:14px;">
-          Everything this app knows about you is yours to take. The export is a plain file —
-          settings, sessions, saved workouts and set logs — and it imports straight back.
+          Everything this app knows about you is yours to take. The export is a plain file
+          (settings, sessions, saved workouts and set logs) and it imports straight back.
           {% if not session.get('username') %}
           You are training as a guest, so only this browser session is included.
           {% endif %}
@@ -281,15 +281,15 @@
         if (words.length) {
             searchNote.hidden = false;
             searchNote.textContent = matches
-                ? `${matches} setting${matches === 1 ? '' : 's'} match "${query}" — including any your current mode normally hides.`
-                : `Nothing matches "${query}". Try the Just ask box above — it understands plain descriptions.`;
+                ? `${matches} setting${matches === 1 ? '' : 's'} match "${query}", including any your current mode normally hides.`
+                : `Nothing matches "${query}". Try the Just ask box above. It understands plain descriptions.`;
         } else {
             searchNote.hidden = true;
         }
 
         const hint = document.getElementById('mode-hint');
         hint.textContent = hiddenByTier
-            ? `${hiddenByTier} deeper options hidden — search still finds them.`
+            ? `${hiddenByTier} deeper options hidden. Search still finds them.`
             : 'Every option is showing.';
 
         document.querySelectorAll('#mode-switch button').forEach(b =>
@@ -508,9 +508,13 @@
             });
 
             const engine = document.createElement('span');
-            engine.className = 'engine-badge ' + (data.engine === 'ai' ? 'engine-ai' : 'engine-rules');
-            engine.textContent = data.engine === 'ai' ? 'answered by your local model'
-                                                      : 'answered by the built-in matcher';
+            const engineLabels = {
+                ai: 'answered by your local model',
+                judge: 'answered by the coaching judge',
+                rules: 'answered by the built-in matcher',
+            };
+            engine.className = 'engine-badge engine-' + (engineLabels[data.engine] ? data.engine : 'rules');
+            engine.textContent = engineLabels[data.engine] || engineLabels.rules;
 
             if (data.applied) {
                 actionsEl.append(engine);
