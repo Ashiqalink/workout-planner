@@ -47,6 +47,18 @@ def load(environ=None):
     g['FLASK_DEBUG'] = _flag(environ, 'FLASK_DEBUG') and not IS_HOSTED
     g['LOG_LEVEL'] = (environ.get('LOG_LEVEL') or ('DEBUG' if FLASK_DEBUG else 'INFO')).upper()
     g['ALLOW_SIGNUP'] = _flag(environ, 'ALLOW_SIGNUP', '1')
+    # POSTs to /login and /register per client IP, in Flask-Limiter syntax.
+    # Counted in memory, so each worker process keeps its own tally.
+    g['LOGIN_RATE_LIMIT'] = environ.get('LOGIN_RATE_LIMIT') or '10 per minute'
+    # Reverse proxies in front of the app. Behind one, every request comes from
+    # the proxy's address, so the rate limit would be shared by everyone; with
+    # 1 the client address is read from X-Forwarded-For. Never set it higher
+    # than the real proxy count: the header is otherwise the client's to forge.
+    g['TRUSTED_PROXIES'] = environ.get('TRUSTED_PROXIES') or '0'
+    # Session cookie only over HTTPS. On by default for the website.
+    g['SECURE_COOKIES'] = _flag(environ, 'SECURE_COOKIES', '1' if IS_HOSTED else '0')
+    # Where scripts/backup_db.py writes its copies.
+    g['BACKUP_DIR'] = environ.get('BACKUP_DIR') or os.path.join(BASE_DIR, 'backups')
     # The download signs its one user in automatically. LOCAL_SINGLE_USER=0
     # brings back accounts; hosted always has them.
     g['LOCAL_SINGLE_USER'] = IS_LOCAL and _flag(environ, 'LOCAL_SINGLE_USER', '1')
@@ -101,6 +113,8 @@ def validate():
         errors.append(f'FITTRACK_MODE must be one of {", ".join(MODES)}, not "{MODE}".')
     if not str(FLASK_PORT).isdigit():
         errors.append(f'FLASK_PORT must be a number, not "{FLASK_PORT}".')
+    if not str(TRUSTED_PROXIES).isdigit():
+        errors.append(f'TRUSTED_PROXIES must be a number, not "{TRUSTED_PROXIES}".')
     if IS_HOSTED and not SECRET_KEY:
         errors.append('Hosted mode needs SECRET_KEY: without it every restart '
                       'logs everyone out and session cookies can be forged.')

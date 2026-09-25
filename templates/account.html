@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block title %}Account – FitTrack{% endblock %}
+
+{% block content %}
+<div class="account-page">
+    <div class="page-header">
+        <div class="breadcrumb"><a href="{{ url_for('index') }}">Home</a> › Account</div>
+        <h1>{{ user['username'] }}</h1>
+        <p>{% if not single_user %}{{ user['email'] }}, {% endif %}joined {{ (user['created_date'] or '')[:10] }}</p>
+    </div>
+
+    <section class="account-block" aria-labelledby="account-data">
+        <h2 id="account-data">Your data</h2>
+        <dl class="account-counts">
+            <div><dt>Sessions logged</dt><dd>{{ counts['sessions'] }}</dd></div>
+            <div><dt>Sets logged</dt><dd>{{ counts['sets'] }}</dd></div>
+            <div><dt>Saved workouts</dt><dd>{{ counts['saved'] }}</dd></div>
+            <div><dt>Favourite exercises</dt><dd>{{ counts['favorites'] }}</dd></div>
+        </dl>
+        <p class="account-note">The download is one JSON file with all of it, plus your settings.
+            Settings can be loaded back in from <a href="{{ url_for('settings_page') }}">Settings</a>.</p>
+        <a class="btn btn-outline" href="{{ url_for('api_export_data', format='json') }}" download>
+            <i class="icon-md" data-lucide="download"></i> Download my data</a>
+    </section>
+
+    <section class="account-block account-danger" aria-labelledby="account-delete">
+        <h2 id="account-delete">Delete account</h2>
+        <p class="account-note">Removes your account and everything listed above from this server.
+            It cannot be undone, so download your data first if you want to keep it.</p>
+
+        <form method="POST" action="{{ url_for('account_delete') }}" class="account-delete-form" id="delete-form">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <div class="form-group">
+                {% if single_user %}
+                <label for="confirm">Type <strong>{{ user['username'] }}</strong> to confirm</label>
+                <input type="text" id="confirm" name="confirm" class="form-control"
+                       required autocomplete="off" spellcheck="false">
+                {% else %}
+                <label for="confirm">Your password</label>
+                <input type="password" id="confirm" name="confirm" class="form-control"
+                       required autocomplete="current-password">
+                {% endif %}
+            </div>
+            <button type="submit" class="btn btn-danger" id="delete-btn" disabled>Delete my account</button>
+        </form>
+    </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Armed only once something is typed; the server checks it either way.
+    (function () {
+        const input = document.getElementById('confirm');
+        const btn = document.getElementById('delete-btn');
+        input.addEventListener('input', function () { btn.disabled = !input.value; });
+        document.getElementById('delete-form').addEventListener('submit', function () {
+            btn.textContent = 'Deleting…';
+            btn.disabled = true;
+        });
+    })();
+</script>
+{% endblock %}

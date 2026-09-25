@@ -2565,3 +2565,53 @@ body { font-size: var(--base-font-size); }
 /* Favourite stars in the library */
 .fav-star { font-size: 1.1rem; line-height: 1; min-width: 34px; }
 .fav-star.starred { color: var(--warning); }
+
+/* =========================================================
+   Account page
+   ========================================================= */
+
+.account-page { max-width: 720px; }
+
+.account-block {
+  padding: 28px 0;
+  border-top: 1px solid var(--border-light);
+}
+.account-block h2 {
+  font-family: var(--font-head);
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 16px;
+}
+
+/* Four counts on one line, each number over its label; two per row on phones. */
+.account-counts {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px 24px;
+  margin: 0 0 20px;
+}
+.account-counts div { display: flex; flex-direction: column-reverse; gap: 2px; }
+.account-counts dt { font-size: 0.85rem; color: var(--text-muted); }
+.account-counts dd {
+  margin: 0;
+  font-family: var(--font-head);
+  font-size: 1.75rem;
+  font-weight: 800;
+  line-height: 1.1;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.account-note { color: var(--text-muted); margin-bottom: 16px; max-width: 60ch; }
+
+.account-danger h2 { color: var(--danger); }
+.account-delete-form { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.account-delete-form .form-group { flex: 1 1 240px; margin-bottom: 0; }
+.account-delete-form .btn { min-height: 44px; }
+.account-delete-form .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+@media (max-width: 560px) {
+  .account-counts { grid-template-columns: repeat(2, 1fr); }
+  .account-delete-form .btn { width: 100%; justify-content: center; }
+}

@@ -30,7 +30,7 @@
                     <label for="password">Password</label>
                     <div class="input-group">
                         <input type="password" id="password" name="password" class="form-control"
-                            placeholder="Min 6 characters" required minlength="6" autocomplete="new-password"
+                            placeholder="At least {{ min_password_length }} characters" required minlength="{{ min_password_length }}" autocomplete="new-password"
                             oninput="checkStrength(this.value)">
                         <button type="button" class="input-toggle-btn" onclick="togglePwd('password', this)"
                             aria-label="Show password"><i class="icon-lg" data-lucide="eye" ></i></button>
@@ -122,9 +122,9 @@
             document.getElementById('confirm-feedback').style.display = 'block';
             return;
         }
-        if (pwd.length < 6) {
+        if (pwd.length < {{ min_password_length }}) {
             e.preventDefault();
-            if (window.showToast) showToast('Password must be at least 6 characters.', 'warning');
+            if (window.showToast) showToast('Password must be at least {{ min_password_length }} characters.', 'warning');
             return;
         }
 

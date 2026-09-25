@@ -88,6 +88,12 @@
                    href="{{ url_for('settings_page') }}" title="Settings" aria-label="Settings">
                     <i class="icon-lg" data-lucide="settings"></i>
                 </a>
+                {% if session.get('username') %}
+                <a class="nav-icon-btn {% if request.endpoint=='account_page' %}active{% endif %}"
+                   href="{{ url_for('account_page') }}" title="Account" aria-label="Account">
+                    <i class="icon-lg" data-lucide="user-round"></i>
+                </a>
+                {% endif %}
                 {% if single_user %}
                 {# One person, signed in automatically: nothing to log out of. #}
                 {% elif session.get('username') %}

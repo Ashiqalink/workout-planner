@@ -36,6 +36,12 @@ def no_typesafe_key(monkeypatch):
     workout_judge._cache.clear()
 
 
+@pytest.fixture(autouse=True)
+def fresh_rate_limits():
+    """Every test client shares 127.0.0.1, so the login tally starts at zero per test."""
+    app_module.limiter.reset()
+
+
 @pytest.fixture(scope='session')
 def flask_app():
     app_module.app.config.update(TESTING=True)

@@ -102,6 +102,8 @@ Everything is an environment variable read by `config.py`:
 A secret key for session cookies is made on first run and kept in
 `instance/secret_key`. Delete the file to sign everyone out.
 
+To run FitTrack as a website with many accounts, see [DEPLOY.md](DEPLOY.md).
+
 To run the tests: `pip install -r requirements-dev.txt`, then `python -m pytest tests`.
 
 ## License

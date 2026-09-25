@@ -13,7 +13,7 @@ import app as app_module
 import config
 import settings_judge
 import settings_registry as reg
-from conftest import CSRF
+from conftest import CSRF, register_user
 
 H = {'X-CSRF-Token': CSRF}
 
@@ -283,3 +283,150 @@ def test_csv_reader_types_columns_like_pandas_did():
     assert all(isinstance(r['duration'], float) for r in library)
     # "None" in the equipment column is a missing cell, as it was under pandas.
     assert any(r['equipment'] is None for r in library)
+
+
+# ── Hosted accounts: sign-up, rate limit, export, delete ─────────────
+
+def _form_client(flask_app):
+    client = flask_app.test_client()
+    with client.session_transaction() as s:
+        s['_csrf_token'] = CSRF
+    return client
+
+
+def _user_count():
+    return app_module.get_db_connection().execute('SELECT COUNT(*) FROM users').fetchone()[0]
+
+
+def test_signup_closed_blocks_register(monkeypatch, flask_app):
+    monkeypatch.setattr(config, 'ALLOW_SIGNUP', False)
+    client = _form_client(flask_app)
+    before = _user_count()
+    resp = client.post('/register', data={
+        '_csrf_token': CSRF, 'username': 'closed_door', 'email': 'c@example.com',
+        'password': 'longenough', 'confirm_password': 'longenough'})
+    assert resp.status_code == 302 and '/login' in resp.location
+    assert _user_count() == before
+    assert client.get('/register').status_code == 302
+    assert 'Create one' not in client.get('/login').get_data(as_text=True)
+
+
+def test_short_password_is_refused(flask_app):
+    client = _form_client(flask_app)
+    before = _user_count()
+    resp = client.post('/register', data={
+        '_csrf_token': CSRF, 'username': 'shorty_pw', 'email': 's@example.com',
+        'password': 'seven77', 'confirm_password': 'seven77'})
+    assert resp.status_code == 200 and _user_count() == before
+    assert 'at least 8 characters' in resp.get_data(as_text=True)
+
+
+def test_login_rate_limit_fires(monkeypatch, flask_app):
+    monkeypatch.setattr(config, 'LOGIN_RATE_LIMIT', '3 per minute')
+    client = _form_client(flask_app)
+    form = {'_csrf_token': CSRF, 'username': 'nobody', 'password': 'wrong-password'}
+    codes = [client.post('/login', data=form).status_code for _ in range(4)]
+    assert codes[:3] == [200, 200, 200] and codes[3] == 429
+    assert 'Too many attempts' in client.post('/login', data=form).get_data(as_text=True)
+    # Reading the page is never limited.
+    assert client.get('/login').status_code == 200
+
+
+def _fill_account(user_id):
+    """One row in every table an account owns."""
+    conn = app_module.get_db_connection()
+    with conn:
+        conn.execute("INSERT INTO user_sessions (user_id, session_date, session_type, "
+                     "total_duration) VALUES (?, '2026-09-01', 'strength', 30)", (user_id,))
+        conn.execute("INSERT INTO user_progress (user_id, domain, sessions_completed) "
+                     "VALUES (?, 'strength', 1)", (user_id,))
+        conn.execute("INSERT INTO saved_workouts (user_id, workout_name, exercises_json, "
+                     "total_duration, difficulty) VALUES (?, ?, '[]', 30, 'Beginner')",
+                     (str(user_id), f'plan-{user_id}'))
+        conn.execute("INSERT OR REPLACE INTO user_settings (user_id, settings_json) "
+                     "VALUES (?, '{}')", (str(user_id),))
+        conn.execute("INSERT INTO exercise_logs (user_id, log_date, exercise_name) "
+                     "VALUES (?, '2026-09-01', ?)", (str(user_id), f'lift-{user_id}'))
+        conn.execute("INSERT INTO favorite_exercises (user_id, exercise_name, category) "
+                     "VALUES (?, ?, 'strength')", (str(user_id), f'fav-{user_id}'))
+    conn.close()
+
+
+def _rows_for(user_id):
+    conn = app_module.get_db_connection()
+    counts = {t: conn.execute(f'SELECT COUNT(*) FROM {t} WHERE user_id = ?',
+                              (str(user_id),)).fetchone()[0]
+              for t in app_module.ACCOUNT_TABLES}
+    counts['users'] = conn.execute('SELECT COUNT(*) FROM users WHERE id = ?',
+                                   (user_id,)).fetchone()[0]
+    conn.close()
+    return counts
+
+
+def _uid(client):
+    with client.session_transaction() as s:
+        return s['user_id']
+
+
+def test_export_holds_only_this_users_data(flask_app):
+    alice, bob = flask_app.test_client(), flask_app.test_client()
+    alice_name = register_user(alice)
+    register_user(bob)
+    a, b = _uid(alice), _uid(bob)
+    _fill_account(a)
+    _fill_account(b)
+    data = json.loads(alice.get('/api/data/export?format=json').get_data(as_text=True))
+    assert data['account'] == alice_name
+    dumped = json.dumps(data)
+    assert f'plan-{a}' in dumped and f'lift-{a}' in dumped and f'fav-{a}' in dumped
+    assert f'plan-{b}' not in dumped and f'lift-{b}' not in dumped and f'fav-{b}' not in dumped
+    assert len(data['sessions']) == 1 and len(data['progress']) == 1
+
+
+def test_hosted_export_leaves_out_the_shared_library(hosted, logged_in_client):
+    data = json.loads(logged_in_client.get('/api/data/export?format=json').get_data(as_text=True))
+    assert data['custom_exercises'] == []
+
+
+def test_delete_account_removes_every_row(flask_app):
+    doomed, bystander = flask_app.test_client(), flask_app.test_client()
+    register_user(doomed)
+    register_user(bystander)
+    d, b = _uid(doomed), _uid(bystander)
+    _fill_account(d)
+    _fill_account(b)
+    assert all(_rows_for(d).values())
+    assert doomed.get('/account').status_code == 200
+
+    # Wrong password, then a missing CSRF token: nothing goes.
+    resp = doomed.post('/account/delete', data={'_csrf_token': CSRF, 'confirm': 'nope-nope'})
+    assert resp.status_code == 302 and all(_rows_for(d).values())
+    resp = doomed.post('/account/delete', data={'confirm': 'secret123'})
+    assert resp.status_code in (302, 400, 403) and all(_rows_for(d).values())
+
+    resp = doomed.post('/account/delete', data={'_csrf_token': CSRF, 'confirm': 'secret123'})
+    assert resp.status_code == 302
+    assert not any(_rows_for(d).values())
+    assert all(_rows_for(b).values())
+    with doomed.session_transaction() as s:
+        assert 'user_id' not in s
+
+
+def test_backup_keeps_the_newest_copies(tmp_path, monkeypatch):
+    import sqlite3
+    from scripts import backup_db
+    src = tmp_path / 'live.db'
+    with sqlite3.connect(src) as conn:
+        conn.execute('CREATE TABLE t (x)')
+        conn.execute('INSERT INTO t VALUES (42)')
+    conn.close()
+    out = tmp_path / 'backups'
+    out.mkdir()
+    for i in range(9):
+        (out / f'fittrack-20260101-00000{i}.db').write_bytes(b'old')
+    made = backup_db.backup(str(src), str(out), keep=7)
+    kept = sorted(p.name for p in out.iterdir())
+    assert len(kept) == 7 and made.endswith(kept[-1])
+    copy = sqlite3.connect(made)
+    assert copy.execute('SELECT x FROM t').fetchone()[0] == 42
+    copy.close()

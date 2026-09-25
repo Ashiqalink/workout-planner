@@ -89,3 +89,6 @@ DIRECTORY_STRUCTURE.md
 MANUAL_TESTING.md
 PROJECT_SUMMARY.md
 learn/
+
+# Database backups (scripts/backup_db.py)
+backups/

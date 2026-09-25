@@ -16,6 +16,9 @@ from logging.handlers import RotatingFileHandler
 import threading
 import secrets
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.middleware.proxy_fix import ProxyFix
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 import config
 import settings_registry as reg
@@ -59,6 +62,19 @@ elif _key_source == 'random':
     logger.warning("Could not save a secret key in %s — sessions will not survive "
                    "restarts. Set SECRET_KEY env var.", config.INSTANCE_DIR)
 
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+    SESSION_COOKIE_SECURE=config.SECURE_COOKIES,
+)
+if int(config.TRUSTED_PROXIES):
+    _proxies = int(config.TRUSTED_PROXIES)
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=_proxies, x_proto=_proxies)
+
+# Password guessing: login and register POSTs are counted per client address.
+# In-memory storage needs no server, and a restart forgetting counts is fine.
+limiter = Limiter(get_remote_address, app=app, storage_uri='memory://')
+
 # CSRF helpers
 def generate_csrf_token():
     if '_csrf_token' not in session:
@@ -90,6 +106,8 @@ def inject_globals():
         'ui_tier': reg.TIER_RANK.get(values.get('ui.mode', 'simple'), 0),
         'is_hosted': config.IS_HOSTED,
         'single_user': config.LOCAL_SINGLE_USER,
+        'allow_signup': config.ALLOW_SIGNUP,
+        'min_password_length': MIN_PASSWORD_LENGTH,
     }
 
 # Configuration — absolute paths so the app works no matter what the CWD is.
@@ -3788,6 +3806,7 @@ def api_export_data():
     fmt = str(request.args.get('format') or settings.get('data.export_format', 'json')).lower()
     stamp = datetime.now().strftime('%Y%m%d')
 
+    progress, favorites = [], []
     if user_id == 'guest':
         sessions = session.get('recent_sessions', [])
         saved, logs, custom = [], [], []
@@ -3806,7 +3825,15 @@ def api_export_data():
                 'SELECT log_date, exercise_name, category, set_number, reps, weight, '
                 'weight_unit FROM exercise_logs WHERE user_id = ? ORDER BY log_date DESC',
                 (str(user_id),)).fetchall()]
-            custom = [dict(r) for r in conn.execute(
+            progress = [dict(r) for r in conn.execute(
+                'SELECT domain, sessions_completed, total_minutes, current_week, '
+                'streak_days, last_session_date FROM user_progress WHERE user_id = ?',
+                (user_id,)).fetchall()]
+            favorites = [dict(r) for r in conn.execute(
+                'SELECT exercise_name, category FROM favorite_exercises WHERE user_id = ?',
+                (str(user_id),)).fetchall()]
+            # The library is shared on the website, not this account's to take.
+            custom = [] if config.IS_HOSTED else [dict(r) for r in conn.execute(
                 'SELECT category, exercise_name, duration_minutes, difficulty_level, '
                 'equipment FROM exercises').fetchall()]
         finally:
@@ -3834,6 +3861,8 @@ def api_export_data():
         'sessions': sessions,
         'saved_workouts': saved,
         'exercise_logs': logs,
+        'progress': progress,
+        'favorites': favorites,
         'custom_exercises': custom,
     }
     return Response(
@@ -4064,7 +4093,25 @@ def single_user_login():
         return redirect(url_for('index'))
     return None
 
+MIN_PASSWORD_LENGTH = 8
+
+
+def _login_rate_limit():
+    return config.LOGIN_RATE_LIMIT
+
+
+@app.errorhandler(429)
+def too_many_requests(e):
+    """The rate limit, as a page the login form can show."""
+    logger.warning("Rate limit hit on %s from %s", request.path, get_remote_address())
+    if request.endpoint in ('login', 'register'):
+        flash('Too many attempts. Wait a minute and try again.', 'error')
+        return render_template(f'{request.endpoint}.html'), 429
+    return jsonify({'success': False, 'error': 'Too many requests'}), 429
+
+
 @app.route('/login', methods=['GET', 'POST'])
+@limiter.limit(_login_rate_limit, methods=['POST'])
 def login():
     """User login route."""
     if request.method == 'POST':
@@ -4093,8 +4140,12 @@ def login():
     return render_template('login.html')
 
 @app.route('/register', methods=['GET', 'POST'])
+@limiter.limit(_login_rate_limit, methods=['POST'])
 def register():
-    """User registration route."""
+    """User registration route. ALLOW_SIGNUP=0 closes it."""
+    if not config.ALLOW_SIGNUP:
+        flash('Sign-up is closed on this server.', 'error')
+        return redirect(url_for('login'))
     if request.method == 'POST':
         validate_csrf_token()
         username = request.form.get('username', '').strip()
@@ -4109,8 +4160,8 @@ def register():
         if not email or '@' not in email:
             flash('Please enter a valid email address', 'error')
             return render_template('register.html')
-        if len(password) < 6:
-            flash('Password must be at least 6 characters', 'error')
+        if len(password) < MIN_PASSWORD_LENGTH:
+            flash(f'Password must be at least {MIN_PASSWORD_LENGTH} characters', 'error')
             return render_template('register.html')
         if password != confirm_password:
             flash('Passwords do not match', 'error')
@@ -4153,6 +4204,89 @@ def logout():
     """User logout route."""
     session.clear()
     flash('You have been logged out', 'info')
+    return redirect(url_for('index'))
+
+
+# ── Account ──────────────────────────────────────────────────────────
+
+# Every table with a user_id column. Deleting an account empties all of them;
+# a new per-user table belongs here too. `exercises` is the shared library and
+# has no owner.
+ACCOUNT_TABLES = ('user_sessions', 'user_progress', 'saved_workouts', 'user_settings',
+                  'exercise_logs', 'favorite_exercises')
+
+
+@app.route('/account')
+def account_page():
+    """What this account holds, a download of it, and the way to delete it."""
+    user_id = session.get('user_id')
+    if not user_id:
+        return redirect(url_for('login'))
+    conn = get_db_connection()
+    try:
+        user = conn.execute('SELECT username, email, created_date FROM users WHERE id = ?',
+                            (user_id,)).fetchone()
+        if user is None:
+            session.clear()
+            return redirect(url_for('login'))
+        counts = {
+            'sessions': conn.execute('SELECT COUNT(*) FROM user_sessions WHERE user_id = ?',
+                                     (user_id,)).fetchone()[0],
+            'saved': conn.execute('SELECT COUNT(*) FROM saved_workouts WHERE user_id = ?',
+                                  (str(user_id),)).fetchone()[0],
+            'sets': conn.execute('SELECT COUNT(*) FROM exercise_logs WHERE user_id = ?',
+                                 (str(user_id),)).fetchone()[0],
+            'favorites': conn.execute('SELECT COUNT(*) FROM favorite_exercises WHERE user_id = ?',
+                                      (str(user_id),)).fetchone()[0],
+        }
+    finally:
+        conn.close()
+    return render_template('account.html', user=user, counts=counts)
+
+
+def delete_account(user_id):
+    """Remove the user and every row they own, in one transaction."""
+    conn = get_db_connection()
+    try:
+        with conn:
+            for table in ACCOUNT_TABLES:
+                conn.execute(f'DELETE FROM {table} WHERE user_id = ?', (str(user_id),))
+            conn.execute('DELETE FROM users WHERE id = ?', (user_id,))
+    finally:
+        conn.close()
+
+
+@app.route('/account/delete', methods=['POST'])
+def account_delete():
+    """Delete this account. Needs the password again (the typed username in
+    single-user mode, whose password nobody knows)."""
+    validate_csrf_token()
+    user_id = session.get('user_id')
+    if not user_id:
+        return redirect(url_for('login'))
+    conn = get_db_connection()
+    user = conn.execute('SELECT username, password_hash FROM users WHERE id = ?',
+                        (user_id,)).fetchone()
+    conn.close()
+    if user is None:
+        session.clear()
+        return redirect(url_for('login'))
+
+    confirm = request.form.get('confirm', '')
+    if config.LOCAL_SINGLE_USER:
+        confirmed = confirm.strip() == user['username']
+    else:
+        confirmed = check_password_hash(user['password_hash'], confirm)
+    if not confirmed:
+        logger.warning("Account deletion refused for %s: confirmation did not match",
+                       user['username'])
+        flash('That did not match. Nothing was deleted.', 'error')
+        return redirect(url_for('account_page'))
+
+    delete_account(user_id)
+    logger.info("Deleted account %s (id=%s) and its data", user['username'], user_id)
+    session.clear()
+    flash('Your account and all of its data are deleted.', 'info')
     return redirect(url_for('index'))
 
 # Initialize database and populate exercises on import
