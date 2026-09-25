@@ -4,8 +4,3 @@ Jinja2==3.1.6
 itsdangerous==2.2.0
 click==8.4.1
 MarkupSafe==3.0.3
-pandas==2.3.3
-numpy==2.2.6
-python-dateutil==2.9.0.post0
-pytz==2026.2
-six==1.17.0

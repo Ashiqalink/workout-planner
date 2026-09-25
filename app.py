@@ -1,11 +1,11 @@
 from flask import (Flask, render_template, request, jsonify, session, redirect,
                    url_for, flash, abort, Response, g)
-import pandas as pd
 import sqlite3
 import csv
 import io
 import json
 import hashlib
+import math
 import logging
 import os
 import re
@@ -52,11 +52,12 @@ logger = app.logger
 # Before anything is served: a hosted server with no SECRET_KEY stops here.
 config.validate()
 
-if config.SECRET_KEY:
-    app.secret_key = config.SECRET_KEY
-else:
-    app.secret_key = secrets.token_hex(16)
-    logger.warning("Using random secret key — sessions will not survive restarts. Set SECRET_KEY env var.")
+app.secret_key, _key_source = config.secret_key()
+if _key_source == 'created':
+    logger.info("Generated a secret key in %s", config.INSTANCE_DIR)
+elif _key_source == 'random':
+    logger.warning("Could not save a secret key in %s — sessions will not survive "
+                   "restarts. Set SECRET_KEY env var.", config.INSTANCE_DIR)
 
 # CSRF helpers
 def generate_csrf_token():
@@ -88,6 +89,7 @@ def inject_globals():
         'settings_json': json.dumps(values),
         'ui_tier': reg.TIER_RANK.get(values.get('ui.mode', 'simple'), 0),
         'is_hosted': config.IS_HOSTED,
+        'single_user': config.LOCAL_SINGLE_USER,
     }
 
 # Configuration — absolute paths so the app works no matter what the CWD is.
@@ -248,22 +250,58 @@ def _add_missing_columns(conn, table, columns):
             conn.execute(f'ALTER TABLE {table} ADD COLUMN {name} {ddl}')
             logger.info("Migrated %s: added column %s", table, name)
 
+# Cells read as missing (None), the same set pandas used before it was dropped,
+# so "None" in the equipment column still means no equipment.
+CSV_MISSING = {'', 'NA', 'N/A', 'n/a', 'NULL', 'null', 'None', 'NaN', 'nan'}
+
+def _parse_number(text, kind):
+    try:
+        return kind(text)
+    except ValueError:
+        return None
+
+def read_csv_records(path):
+    """A CSV as a list of dicts, typed per column the way pandas typed it.
+
+    A column whose every present cell is a whole number becomes int (float if
+    any cell is missing), one of numbers becomes float, anything else stays
+    str. Missing cells are None.
+    """
+    with open(path, newline='', encoding='utf-8') as f:
+        rows = [{k: (None if (v or '').strip() in CSV_MISSING else v)
+                 for k, v in row.items()} for row in csv.DictReader(f)]
+    for column in (rows[0].keys() if rows else ()):
+        present = [r[column] for r in rows if r[column] is not None]
+        if not present:
+            continue
+        has_missing = len(present) < len(rows)
+        if not has_missing and all(_parse_number(v, int) is not None for v in present):
+            kind = int
+        elif all(_parse_number(v, float) is not None for v in present):
+            kind = float
+        else:
+            continue
+        for r in rows:
+            if r[column] is not None:
+                r[column] = kind(r[column])
+    return rows
+
 def load_exercise_data():
     """Load exercise data from CSV files."""
     try:
-        exercises_df = pd.read_csv(os.path.join(DATA_DIR, 'comprehensive_training_matrix.csv'))
-        logger.debug("Loaded %d exercises from comprehensive_training_matrix.csv", len(exercises_df))
+        exercises = read_csv_records(os.path.join(DATA_DIR, 'comprehensive_training_matrix.csv'))
+        logger.debug("Loaded %d exercises from comprehensive_training_matrix.csv", len(exercises))
 
-        program_df = pd.read_csv(os.path.join(DATA_DIR, 'complete_4week_program.csv'))
-        logger.debug("Loaded %d program entries from complete_4week_program.csv", len(program_df))
+        program = read_csv_records(os.path.join(DATA_DIR, 'complete_4week_program.csv'))
+        logger.debug("Loaded %d program entries from complete_4week_program.csv", len(program))
 
-        student_program_df = pd.read_csv(os.path.join(DATA_DIR, 'student_training_program.csv'))
-        logger.debug("Loaded %d student program entries from student_training_program.csv", len(student_program_df))
+        student_program = read_csv_records(os.path.join(DATA_DIR, 'student_training_program.csv'))
+        logger.debug("Loaded %d student program entries from student_training_program.csv", len(student_program))
 
         return {
-            'exercises': exercises_df.to_dict('records'),
-            'program': program_df.to_dict('records'),
-            'student_program': student_program_df.to_dict('records')
+            'exercises': exercises,
+            'program': program,
+            'student_program': student_program
         }
     except FileNotFoundError as e:
         logger.error("CSV file not found: %s", e)
@@ -319,15 +357,9 @@ def populate_exercises_db():
     logger.info("Synced exercises table with %d exercises from CSV", len(data['exercises']))
 
 def _clean_cell(value):
-    """A CSV cell as a plain string. Pandas reads blanks as NaN, which is truthy —
-    so `value or default` silently keeps the NaN unless it goes through here."""
+    """A CSV cell as a plain string; a missing cell is ''."""
     if value is None:
         return ''
-    try:
-        if pd.isna(value):
-            return ''
-    except (TypeError, ValueError):
-        pass
     return str(value).strip()
 
 # The exercise library changes only when someone adds a custom exercise, but it
@@ -430,12 +462,12 @@ training_data = load_exercise_data()
 def load_rest_times():
     """Load rest times from CSV file."""
     try:
-        rest_df = pd.read_csv(os.path.join(DATA_DIR, 'Category-Beginner-Intermediate-Advanced.csv'))
-        logger.debug("Loaded %d rest time categories", len(rest_df))
+        rows = read_csv_records(os.path.join(DATA_DIR, 'Category-Beginner-Intermediate-Advanced.csv'))
+        logger.debug("Loaded %d rest time categories", len(rows))
 
         # Convert to dictionary for easy lookup
         rest_times = {}
-        for _, row in rest_df.iterrows():
+        for row in rows:
             category = row['Category']
             rest_times[category] = {
                 'beginner': int(row['Beginner']),
@@ -2260,14 +2292,9 @@ def build_candidate_pool(domains, settings, exercises=None):
 
 
 def _json_safe_exercise(exercise):
-    """Replace pandas NaN with None so the response serialises."""
-    clean = {}
-    for key, value in exercise.items():
-        try:
-            clean[key] = None if pd.isna(value) else value
-        except (TypeError, ValueError):
-            clean[key] = value
-    return clean
+    """Replace NaN with None so the response is valid JSON."""
+    return {key: None if isinstance(value, float) and math.isnan(value) else value
+            for key, value in exercise.items()}
 
 
 @app.route('/api/generate-workout', methods=['POST'])
@@ -3998,6 +4025,45 @@ def api_personal_records():
 
 
 # Authentication routes
+LOCAL_USERNAME = 'local'
+
+def local_user():
+    """(id, username) of the download's one account, creating it if needed.
+
+    An install that already has exactly one account keeps using it, so an
+    upgrade does not hide someone's history behind a fresh empty user. The
+    password is random and never shown: nobody logs in to this account.
+    """
+    conn = get_db_connection()
+    try:
+        row = conn.execute('SELECT id, username FROM users WHERE username = ?',
+                           (LOCAL_USERNAME,)).fetchone()
+        if row is None:
+            users = conn.execute('SELECT id, username FROM users LIMIT 2').fetchall()
+            row = users[0] if len(users) == 1 else None
+        if row is None:
+            cursor = conn.execute(
+                'INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)',
+                (LOCAL_USERNAME, 'local@localhost',
+                 generate_password_hash(secrets.token_hex(32))))
+            conn.commit()
+            logger.info("Created the single local user (id=%s)", cursor.lastrowid)
+            return cursor.lastrowid, LOCAL_USERNAME
+        return row['id'], row['username']
+    finally:
+        conn.close()
+
+@app.before_request
+def single_user_login():
+    """LOCAL_SINGLE_USER: every request is the local user; no login page."""
+    if not config.LOCAL_SINGLE_USER or request.endpoint == 'static':
+        return None
+    if not session.get('user_id'):
+        session['user_id'], session['username'] = local_user()
+    if request.endpoint in ('login', 'register', 'logout'):
+        return redirect(url_for('index'))
+    return None
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     """User login route."""
@@ -4103,6 +4169,11 @@ if __name__ == '__main__':
     # off the request thread, means the first person to ask a settings
     # question waits for one round trip instead of two.
     threading.Thread(target=settings_judge.warm, daemon=True).start()
+    if config.OPEN_BROWSER and not config.FLASK_DEBUG:
+        # A second after run() starts listening; the reloader would open two.
+        import webbrowser
+        browse_host = '127.0.0.1' if host in ('0.0.0.0', '::') else host
+        threading.Timer(1.0, webbrowser.open, (f'http://{browse_host}:{port}/',)).start()
     app.run(
         debug=config.FLASK_DEBUG,
         host=host,

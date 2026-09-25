@@ -14,6 +14,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _db_fd, _db_path = tempfile.mkstemp(prefix='fittrack_test_', suffix='.db')
 os.close(_db_fd)
 os.environ['DATABASE_PATH'] = _db_path
+# Accounts on, and a fixed key so the suite never writes instance/secret_key.
+os.environ['LOCAL_SINGLE_USER'] = '0'
+os.environ['SECRET_KEY'] = 'test-secret-key'
 
 import pytest  # noqa: E402
 import app as app_module  # noqa: E402  (import after DATABASE_PATH is set)

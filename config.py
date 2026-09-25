@@ -14,8 +14,11 @@ after ``monkeypatch.setenv`` to switch modes.
 """
 
 import os
+import secrets
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# Per-install files that must never be committed (the generated secret key).
+INSTANCE_DIR = os.path.join(BASE_DIR, 'instance')
 
 MODES = ('local', 'hosted')
 
@@ -44,6 +47,11 @@ def load(environ=None):
     g['FLASK_DEBUG'] = _flag(environ, 'FLASK_DEBUG') and not IS_HOSTED
     g['LOG_LEVEL'] = (environ.get('LOG_LEVEL') or ('DEBUG' if FLASK_DEBUG else 'INFO')).upper()
     g['ALLOW_SIGNUP'] = _flag(environ, 'ALLOW_SIGNUP', '1')
+    # The download signs its one user in automatically. LOCAL_SINGLE_USER=0
+    # brings back accounts; hosted always has them.
+    g['LOCAL_SINGLE_USER'] = IS_LOCAL and _flag(environ, 'LOCAL_SINGLE_USER', '1')
+    # Set by run.bat / run.sh: open the browser once the server is listening.
+    g['OPEN_BROWSER'] = _flag(environ, 'FITTRACK_OPEN_BROWSER')
 
     g['LM_STUDIO_API_URL'] = (environ.get('LM_STUDIO_API_URL')
                               or 'http://localhost:1234/v1').rstrip('/')
@@ -54,6 +62,36 @@ def load(environ=None):
 
     # CLI switch for `flask tag-regions`: re-tag rows that already have tags.
     g['TAG_ALL'] = _flag(environ, 'TAG_ALL')
+
+
+def secret_key(instance_dir=None):
+    """SECRET_KEY if set; otherwise the key saved on first run, made if missing.
+
+    Returns ``(key, source)``. Without a saved key every restart would sign
+    everyone out. Hosted mode never gets here: validate() insists on the
+    environment variable. If the instance folder cannot be written the key is
+    random for this process only, and ``source`` says so.
+    """
+    if SECRET_KEY:
+        return SECRET_KEY, 'env'
+    path = os.path.join(instance_dir or INSTANCE_DIR, 'secret_key')
+    try:
+        with open(path, encoding='utf-8') as f:
+            saved = f.read().strip()
+        if saved:
+            return saved, 'file'
+    except FileNotFoundError:
+        pass
+    key = secrets.token_hex(32)
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        # 0o600: the key signs session cookies, so no other account may read it.
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            f.write(key)
+    except OSError:
+        return key, 'random'
+    return key, 'created'
 
 
 def validate():

@@ -88,7 +88,9 @@
                    href="{{ url_for('settings_page') }}" title="Settings" aria-label="Settings">
                     <i class="icon-lg" data-lucide="settings"></i>
                 </a>
-                {% if session.get('username') %}
+                {% if single_user %}
+                {# One person, signed in automatically: nothing to log out of. #}
+                {% elif session.get('username') %}
                 <a class="nav-icon-btn" href="{{ url_for('logout') }}" title="Log out {{ session.get('username') }}"
                    aria-label="Log out"><i class="icon-lg" data-lucide="log-out"></i></a>
                 {% else %}

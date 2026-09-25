@@ -199,3 +199,87 @@ def test_custom_css_cannot_escape_style_block(client):
     assert 'body{color:red}' in block
     assert '<script>alert(1)' not in html
     assert block.count('</style>') == 1 and block.endswith('</style>')
+
+
+# ── Local mode: saved secret key, single user ────────────────────────
+
+def test_local_keeps_its_secret_key_across_restarts(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, 'SECRET_KEY', '')
+    first, source = config.secret_key(str(tmp_path))
+    assert source == 'created' and len(first) == 64
+    # A restart re-reads the environment and finds the saved file.
+    config.load()
+    monkeypatch.setattr(config, 'SECRET_KEY', '')
+    second, source = config.secret_key(str(tmp_path))
+    assert (second, source) == (first, 'file')
+
+
+def test_secret_key_env_wins_over_saved_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, 'SECRET_KEY', '')
+    config.secret_key(str(tmp_path))
+    monkeypatch.setattr(config, 'SECRET_KEY', 'from-env')
+    assert config.secret_key(str(tmp_path)) == ('from-env', 'env')
+
+
+def test_unwritable_instance_dir_falls_back_to_random(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, 'SECRET_KEY', '')
+    blocker = tmp_path / 'not-a-dir'
+    blocker.write_text('x')
+    key, source = config.secret_key(str(blocker / 'instance'))
+    assert source == 'random' and key
+
+
+@pytest.fixture()
+def single_user(monkeypatch):
+    monkeypatch.setattr(config, 'LOCAL_SINGLE_USER', True)
+
+
+def test_single_user_mode_skips_login(single_user, client):
+    resp = client.get('/login')
+    assert resp.status_code == 302 and 'login' not in resp.location
+    assert client.get('/register').status_code == 302
+    with client.session_transaction() as s:
+        user_id = s['user_id']
+    assert (user_id, s['username']) == app_module.local_user()
+    # A second browser is the same person.
+    other = app_module.app.test_client()
+    other.get('/')
+    with other.session_transaction() as s:
+        assert s['user_id'] == user_id
+    html = client.get('/').get_data(as_text=True)
+    assert 'Log out' not in html and 'Log in' not in html
+
+
+def test_single_user_data_is_saved_to_the_account(single_user, client):
+    _guest(client)
+    client.post('/api/settings', headers=H, json={'appearance.theme': 'dark'})
+    with client.session_transaction() as s:
+        user_id = s['user_id']
+        assert 'settings' not in s  # not the guest cookie
+    assert json.loads(app_module.get_db_connection().execute(
+        'SELECT settings_json FROM user_settings WHERE user_id = ?',
+        (str(user_id),)).fetchone()[0])['appearance.theme'] == 'dark'
+
+
+def test_single_user_is_off_when_disabled_or_hosted(monkeypatch, client):
+    assert config.LOCAL_SINGLE_USER is False  # conftest sets LOCAL_SINGLE_USER=0
+    assert client.get('/login').status_code == 200
+    monkeypatch.setenv('LOCAL_SINGLE_USER', '1')
+    monkeypatch.setenv('FITTRACK_MODE', 'hosted')
+    config.load()
+    try:
+        assert config.LOCAL_SINGLE_USER is False
+    finally:
+        monkeypatch.undo()
+        config.load()
+
+
+def test_csv_reader_types_columns_like_pandas_did():
+    rows = app_module.read_csv_records(
+        app_module.os.path.join(app_module.DATA_DIR, 'complete_4week_program.csv'))
+    assert isinstance(rows[0]['Week'], int) and isinstance(rows[0]['Duration'], int)
+    library = app_module.read_csv_records(
+        app_module.os.path.join(app_module.DATA_DIR, 'comprehensive_training_matrix.csv'))
+    assert all(isinstance(r['duration'], float) for r in library)
+    # "None" in the equipment column is a missing cell, as it was under pandas.
+    assert any(r['equipment'] is None for r in library)
